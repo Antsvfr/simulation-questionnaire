@@ -18,7 +18,19 @@ source .venv/bin/activate
 pip install -r requirements.txt
 streamlit run app.py
 ```
-Tests (facultatif) : `python -m pytest -q tests_simulator.py`. Python ≥ 3.10 recommandé.
+Tests (facultatif, ~1 min) : `python -m pytest -q`. Python ≥ 3.10 recommandé.
+
+## Fonctionnement de l'échantillon
+
+- L'échantillon est conservé dans `st.session_state` avec **les paramètres exacts de sa génération**.
+  Changer d'onglet, filtrer, trier ou télécharger ne le régénère jamais.
+- Modifier les réglages de la barre latérale affiche « paramètres non encore appliqués ».
+- **🔁 Reproduire avec cette graine** : régénère avec les réglages et la graine saisis (mêmes paramètres +
+  même graine = mêmes données). **🎲 Générer un nouvel échantillon** : tire et affiche une nouvelle graine.
+- Onglets : Échantillon détaillé (indicateurs, tableau Q1–Q15, filtres, tri, lisible/codes) · Fiche individuelle ·
+  Composition (probabilités paramétrées vs proportions observées) · Échelles · Comparaisons · Corrélations · Exports.
+- Un sélecteur de **périmètre** (ensemble / profils filtrés) s'applique aux résumés et graphiques ; le périmètre et
+  le dénominateur sont toujours affichés.
 
 ## Questionnaire
 
@@ -54,15 +66,33 @@ Q9–Q12** (dimensions différentes).
 - `Profil_latent_simulé` (appétence faible / intermédiaire / élevée) catégorise ce trait ; **aucun profil n'est réel**.
 - Âge et niveau d'études sont cohérents (< 18 ans → Bac/L1-L2). Même graine → mêmes données.
 
+## Exports
+
+Deux blocs séparés : **tout l'échantillon** et **profils filtrés uniquement**. Pour chacun : CSV lisible, CSV
+codes + statuts, Excel (feuilles *Réponses lisibles*, *Codes et statuts*, *Dictionnaire*, *Composition*,
+*Paramètres et méthode*) et JSON. Noms de fichier `SIMULATION_SYNTHETIQUE_…` ; colonne `Origine` dans chaque ligne ;
+en-têtes en première ligne (pas de ligne de commentaire) ; UTF-8 avec BOM (accents corrects dans Excel).
+Dans le CSV « codes », une cellule vide = non applicable **ou** manquant : voir `Qx_statut`.
+
+## Validité des analyses
+
+- Aucun score global ; Q9–Q12 (5 modalités) et Q5–Q8, Q13–Q15 (6 modalités) restent séparées.
+- Corrélations de Spearman sur paires complètes, uniquement entre échelles ordinales (jamais sur genre, âge, etc.) ;
+  refusées si n < 10 ou variable constante (« – » affiché, motif listé) ; n par paire affiché.
+- Les réponses absentes ne sont jamais remplies : un questionnaire « complet » n'a aucune réponse accidentellement
+  manquante parmi les questions applicables ; les non applicables ne comptent pas comme oubli.
+
 ## Fichiers
 
-`survey_config.py` (questionnaire, filtres) · `simulator.py` (génération, statuts, exports) · `app.py` (interface)
-· `tests_simulator.py` (tests : échelles, codes, filtres, non applicable/manquant, Q10, exports).
+`survey_config.py` (questionnaire, textes, filtres) · `simulator.py` (génération, statuts) · `views.py` (tableaux, filtres,
+composition, corrélations) · `exports.py` (CSV/Excel/JSON) · `app.py` (interface) · `tests_*.py` (générateur/vues,
+exports relus, parcours Streamlit AppTest).
 
 ## Relire les exports
 
 ```python
-pd.read_csv("SIMULATION_echantillon_synthetique.csv", comment="#", encoding="utf-8-sig")
-pd.read_excel("SIMULATION_echantillon_synthetique.xlsx", sheet_name="Données", header=2)
+pd.read_csv("SIMULATION_SYNTHETIQUE_lisibles_tout_graine42_100profils.csv", encoding="utf-8-sig")
+pd.read_excel("SIMULATION_SYNTHETIQUE_classeur_tout_graine42_100profils.xlsx", sheet_name="Réponses lisibles")
 ```
-L'Excel contient aussi les feuilles `Dictionnaire`, `Filtres` et `Effectifs`.
+Dans l'Excel, les feuilles annexes (Dictionnaire, Composition, Paramètres et méthode) ont le bandeau en A1 et leurs
+tableaux à partir de la ligne 3.

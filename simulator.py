@@ -1,8 +1,6 @@
-"""Génération d'un échantillon synthétique (Q1–Q15) et exports."""
+"""Génération d'un échantillon synthétique (Q1–Q15)."""
 from __future__ import annotations
 
-import io
-import json
 from dataclasses import dataclass
 
 import numpy as np
@@ -21,11 +19,44 @@ class SimParams:
     n: int = 100
     seed: int = 42
     taux_usage: float = 0.80                 # cible pour Q1 = Oui
-    age_weights: tuple = (0.10, 0.62, 0.20, 0.08)
+    age_weights: tuple = (0.10, 0.62, 0.20, 0.08)   # normalisés à la génération
+    genre_weights: tuple = (0.46, 0.48, 0.03, 0.03)
     taux_manquants: float = 0.02             # non-réponse accidentelle, par cellule applicable (Q2–Q15)
     force_latent: float = 1.0                # multiplie le lien du trait latent avec Q5, Q7, Q9, Q12–Q15
     lien_q10_latent: float = 0.0             # DÉSACTIVÉ par défaut : aucune association imposée
     lien_q10_age: float = 0.0                # DÉSACTIVÉ par défaut
+
+
+NIVEAU_P = {1: (0.95, 0.05, 0, 0), 2: (0.45, 0.35, 0.18, 0.02),
+            3: (0.10, 0.25, 0.45, 0.20), 4: (0.03, 0.12, 0.40, 0.45)}  # P(niveau | âge)
+
+
+def _norm(p):
+    p = np.asarray(p, float)
+    return p / p.sum()
+
+
+def expected_distributions(p: SimParams) -> dict:
+    """Probabilités définies par les paramètres (marginales), par question catégorielle.
+
+    Q1 : taux visé ; Q4 : marginale de P(niveau | âge) pondérée par la répartition d'âge.
+    """
+    age = _norm(p.age_weights)
+    niv = sum(w * _norm(NIVEAU_P[a + 1]) for a, w in enumerate(age))
+    return {"Q1": [p.taux_usage, 1 - p.taux_usage], "Q2": list(age),
+            "Q3": list(_norm(p.genre_weights)), "Q4": list(niv)}
+
+
+def _calibrate_intercept(z0, target):
+    """Décalage b tel que moyenne(sigmoïde(z0 + b)) = target (la probabilité moyenne vaut le taux visé)."""
+    lo, hi = -40.0, 40.0
+    for _ in range(80):
+        mid = (lo + hi) / 2
+        if np.mean(1 / (1 + np.exp(-(z0 + mid)))) < target:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
 
 
 def _choice(rng, p, n):
@@ -45,17 +76,20 @@ def simulate(params: SimParams | None = None) -> pd.DataFrame:
     n, f = p.n, p.force_latent
 
     age = _choice(rng, p.age_weights, n)
-    niveau_p = {1: (0.95, 0.05, 0, 0), 2: (0.45, 0.35, 0.18, 0.02),
-                3: (0.10, 0.25, 0.45, 0.20), 4: (0.03, 0.12, 0.40, 0.45)}
-    niveau = np.array([_choice(rng, niveau_p[a], 1)[0] for a in age])
-    genre = _choice(rng, (0.46, 0.48, 0.03, 0.03), n)
+    niveau = np.array([_choice(rng, NIVEAU_P[a], 1)[0] for a in age])
+    genre = _choice(rng, p.genre_weights, n)
 
     L = rng.normal(0, 1, n)  # trait latent « appétence pour l'IA » (construction de la simulation)
 
-    logit0 = np.log(p.taux_usage / (1 - p.taux_usage))
-    z = 0.9 * L + 0.15 * (niveau - 2.5) - 0.2 * (age == 1)
-    z = z - z.mean() + logit0
-    q1 = np.where(rng.random(n) < 1 / (1 + np.exp(-z)), 1, 2)  # 1 = Oui, 2 = Non
+    z0 = 0.9 * L + 0.15 * (niveau - 2.5) - 0.2 * (age == 1)
+    u = rng.random(n)  # tiré dans tous les cas : le flux aléatoire reste identique
+    if p.taux_usage <= 0:
+        q1 = np.full(n, 2)
+    elif p.taux_usage >= 1:
+        q1 = np.full(n, 1)
+    else:
+        prob = 1 / (1 + np.exp(-(z0 + _calibrate_intercept(z0, p.taux_usage))))
+        q1 = np.where(u < prob, 1, 2)  # 1 = Oui, 2 = Non
 
     q5 = _lik(rng, 3.9, 0.9 * f * L, 0.9, 6)
     q6 = _lik(rng, 3.6, 0.5 * f * L, 0.9, 6)
@@ -110,48 +144,3 @@ def effectifs(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def with_labels(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    for q in CATEGORICAL:
-        opts = QUESTIONS[q]["options"]
-        out[q] = out[q].map(lambda c, o=opts: o[int(c) - 1] if pd.notna(c) else np.nan)
-    return out
-
-
-def export_frame(df: pd.DataFrame, mode: str = "both") -> pd.DataFrame:
-    """Colonnes Qx + Qx_statut (distinguant non applicable / manquant, que la cellule vide ne dit pas)."""
-    out = df.copy() if mode == "codes" else with_labels(df)
-    if mode == "both":
-        for q in CATEGORICAL:
-            out[f"{q}_code"] = df[q]
-    st = status_frame(df).add_suffix("_statut")
-    return pd.concat([out, st], axis=1)
-
-
-NOTE = "Cellule vide = non applicable OU manquant : voir colonnes Qx_statut."
-
-
-def to_csv_bytes(df, mode="both") -> bytes:
-    body = export_frame(df, mode).to_csv(index=False)
-    return ("﻿# " + BANNER + "\n# " + NOTE + "\n" + body).encode("utf-8")
-
-
-def to_excel_bytes(df) -> bytes:
-    buf = io.BytesIO()
-    cb = pd.DataFrame(codebook(), columns=["Question", "Intitulé", "Code", "Modalité"])
-    ft = pd.DataFrame(filters_table(), columns=["Question", "Posée à", "Nature de la règle"])
-    with pd.ExcelWriter(buf, engine="openpyxl") as xw:
-        pd.DataFrame({"AVERTISSEMENT": [BANNER, NOTE]}).to_excel(xw, sheet_name="AVERTISSEMENT", index=False)
-        for name, frame in (("Données", export_frame(df, "both")), ("Dictionnaire", cb),
-                            ("Filtres", ft), ("Effectifs", effectifs(df))):
-            frame.to_excel(xw, sheet_name=name, index=False, startrow=2)
-            xw.sheets[name]["A1"] = BANNER
-        xw.sheets["AVERTISSEMENT"].column_dimensions["A"].width = 90
-    return buf.getvalue()
-
-
-def to_json_bytes(df) -> bytes:
-    payload = {"avertissement": BANNER, "note": NOTE,
-               "filtres": [dict(zip(("question", "posee_a", "regle"), r)) for r in filters_table()],
-               "enregistrements": json.loads(export_frame(df, "both").to_json(orient="records"))}
-    return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")

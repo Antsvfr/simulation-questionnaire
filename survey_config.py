@@ -57,11 +57,42 @@ QUESTIONS = {
                 asked="all", rule=None),
 }
 
+# Texte affiché dans la fiche individuelle. Pour Q9–Q15 : formulation fournie pour le questionnaire.
+# Pour Q1–Q8, seuls les intitulés ont été fournis : ils sont utilisés tels quels (text_is_title=True).
+FULL_TEXT = {
+    "Q9": "L'utilisation de l'IA améliore la qualité de mon travail scolaire.",
+    "Q10": "Les établissements d'enseignement devraient encadrer l'utilisation de l'IA.",
+    "Q11": "J'ai tendance à vérifier les informations fournies par une IA avant de les utiliser.",
+    "Q12": "L'IA m'aide à devenir plus autonome dans mes études.",
+    "Q13": "Pour vous, l'impact de l'IA sur la créativité est :",
+    "Q14": "Pour vous, l'impact de l'IA sur l'esprit critique est :",
+    "Q15": "Pour vous, l'utilisation de l'IA pour recevoir des explications sur un cours est :",
+}
+for _q, _d in QUESTIONS.items():
+    _d["text"] = FULL_TEXT.get(_q, _d["label"])
+    _d["text_is_title"] = _q not in FULL_TEXT
+
 ALL_QS = list(QUESTIONS)
 CATEGORICAL = [q for q, d in QUESTIONS.items() if d["kind"] == "single"]
 SCALE_QS = [q for q, d in QUESTIONS.items() if d["kind"] != "single"]
 SCALE6_QS = [q for q in SCALE_QS if QUESTIONS[q]["levels"] == 6]
 AGREE_QS = [q for q in SCALE_QS if QUESTIONS[q]["levels"] == 5]
+
+
+SHORT_HDR = {"Q1": "Utilise l'IA", "Q2": "Âge", "Q3": "Genre", "Q4": "Niveau d'études",
+             "Q5": "Amélioration apprentissage", "Q6": "Fiabilité réponses", "Q7": "Efficacité cours",
+             "Q8": "Confiance jugement", "Q9": "IA améliore travail", "Q10": "Encadrement",
+             "Q11": "Vérification infos", "Q12": "Autonomie", "Q13": "Créativité",
+             "Q14": "Esprit critique", "Q15": "Explications cours"}
+
+
+def scale_help(q: str) -> str:
+    """Texte d'aide : question complète + bornes de l'échelle (libellés présents dans le questionnaire)."""
+    spec = QUESTIONS[q]
+    if spec["kind"] == "single":
+        return f"{spec['text']} — Modalités : " + " / ".join(spec["options"])
+    anc = " ; ".join(f"{k} = {v}" for k, v in spec["anchors"].items())
+    return f"{spec['text']} — Échelle 1 à {spec['levels']} ({anc})"
 
 
 def short(q: str) -> str:
