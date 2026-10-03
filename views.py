@@ -10,7 +10,8 @@ import numpy as np
 import pandas as pd
 
 from simulator import PROFIL_COL, SimParams, expected_distributions, status_frame
-from survey_config import ALL_QS, BANNER, CATEGORICAL, QUESTIONS, SCALE_QS, is_user_only
+from survey_config import (ALL_QS, BANNER, CATEGORICAL, MODE_FILTRE, MODE_LIBRE, QUESTIONS,
+                           SCALE_QS, is_user_only)
 
 NA_TXT = "Non applicable"
 MISS_TXT = "Réponse manquante"
@@ -25,14 +26,11 @@ VARS = {"Q1": "Utilisation de l'IA", "Q2": "Tranche d'âge", "Q3": "Genre", "Q4"
 
 
 def fmt_answer(q: str, code) -> str:
-    """Texte lisible d'une réponse. Seuls les libellés présents dans le questionnaire sont utilisés."""
+    """Texte lisible d'une réponse : exactement le libellé du questionnaire pour ce code, jamais un
+    code renommé ni un libellé intermédiaire inventé (ex. code 2 → « 1 », code 8 → « Énormément »)."""
     spec = QUESTIONS[q]
     c = int(code)
-    if spec["kind"] == "single":
-        return spec["options"][c - 1]
-    base = f"{c} sur {spec['levels']}"
-    lab = spec["anchors"].get(c)
-    return f"{base} · {lab}" if lab else base
+    return spec["options"][c - 1] if spec["kind"] == "single" else spec["anchors"][c]
 
 
 def _summary_cols(df, st) -> pd.DataFrame:
@@ -46,9 +44,12 @@ def _summary_cols(df, st) -> pd.DataFrame:
     }, index=df.index)
 
 
-def readable_frame(df: pd.DataFrame) -> pd.DataFrame:
+Q1_BIN_COL = "Q1_binaire"
+
+
+def readable_frame(df: pd.DataFrame, mode: str = MODE_FILTRE) -> pd.DataFrame:
     """Une ligne par profil ; « Non applicable » et « Réponse manquante » sont distincts."""
-    st = status_frame(df)
+    st = status_frame(df, mode)
     out = pd.DataFrame({"ID": df["ID"]})
     for q in ALL_QS:
         out[q] = [NA_TXT if s == "non_applicable" else MISS_TXT if s == "manquant" else fmt_answer(q, v)
@@ -58,12 +59,18 @@ def readable_frame(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def codes_frame(df: pd.DataFrame, with_status: bool = True) -> pd.DataFrame:
-    """Codes numériques (cellule vide = non applicable OU manquant ; voir Qx_statut)."""
-    st = status_frame(df)
+def codes_frame(df: pd.DataFrame, mode: str = MODE_FILTRE, with_status: bool = True) -> pd.DataFrame:
+    """Codes numériques (cellule vide = non applicable OU manquant ; voir Qx_statut).
+
+    Inclut `Q1_binaire` (Oui=1, Non=0), une variable dérivée proposée en plus de Q1 (conservée telle
+    quelle) — jamais un recodage de Q8, qui n'est pas une variable Oui/Non.
+    """
+    st = status_frame(df, mode)
     out = pd.DataFrame({"ID": df["ID"]})
     for q in ALL_QS:
         out[q] = df[q].astype("Int64")
+        if q == "Q1":
+            out[Q1_BIN_COL] = (df["Q1"] == 1).astype("Int64")
     if with_status:
         out = pd.concat([out, st.add_suffix("_statut")], axis=1)
     out = pd.concat([out, _summary_cols(df, st)], axis=1)
@@ -86,8 +93,8 @@ def overview_text(c: dict) -> str:
             f"uniquement les données simulées affichées ci-dessous, pas des étudiants réels.")
 
 
-def counts(df: pd.DataFrame) -> dict:
-    st = status_frame(df)
+def counts(df: pd.DataFrame, mode: str = MODE_FILTRE) -> dict:
+    st = status_frame(df, mode)
     complet = st.eq("manquant").sum(axis=1) == 0
     return {"profils": len(df), "utilisateurs": int((df["Q1"] == 1).sum()),
             "non_utilisateurs": int((df["Q1"] == 2).sum()), "complets": int(complet.sum()),
@@ -175,9 +182,9 @@ def composition_long(d: pd.DataFrame, scope_label: str, params: SimParams | None
 
 
 # ------------------------------------------------------------------------------------ question par question
-def question_overview(d: pd.DataFrame, q: str) -> dict:
+def question_overview(d: pd.DataFrame, q: str, mode: str = MODE_FILTRE) -> dict:
     """n valides / manquants / non applicables pour une question, sur le périmètre `d`."""
-    st = status_frame(d)[q]
+    st = status_frame(d, mode)[q]
     return {"valides": int((st == "répondu").sum()), "manquants": int((st == "manquant").sum()),
             "non_applicables": int((st == "non_applicable").sum()), "total": len(d)}
 
@@ -191,8 +198,7 @@ def question_distribution(d: pd.DataFrame, q: str) -> pd.DataFrame:
         modalites = spec["options"]
         eff = valid.value_counts().reindex(range(1, len(modalites) + 1), fill_value=0)
     else:
-        modalites = [f"{c}/{spec['levels']}" + (f" · {spec['anchors'][c]}" if c in spec["anchors"] else "")
-                     for c in range(1, spec["levels"] + 1)]
+        modalites = [spec["anchors"][c] for c in range(1, spec["levels"] + 1)]
         eff = valid.value_counts().reindex(range(1, spec["levels"] + 1), fill_value=0)
     pct = (eff.values / n * 100) if n else np.full(len(modalites), np.nan)
     return pd.DataFrame({"Code": range(1, len(modalites) + 1), "Modalité": modalites,
@@ -213,16 +219,19 @@ def question_summary_stats(d: pd.DataFrame, q: str) -> dict | None:
 
 
 # ------------------------------------------------------------------------------------ comparaisons par groupe
-def comparison_available(q: str, group_q: str) -> bool:
+def comparison_available(q: str, group_q: str, mode: str = MODE_FILTRE) -> bool:
     """False lorsque `q` est réservée aux utilisateurs et que le regroupement est Q1 (comparaison
     utilisateurs/non-utilisateurs non pertinente : les non-utilisateurs n'ont par construction aucune
-    réponse applicable)."""
+    réponse applicable). Toujours disponible en mode « sans branchement » (aucune question exclue),
+    mais alors les réponses des non-utilisateurs à une question d'expérience sont hypothétiques."""
+    if mode == MODE_LIBRE:
+        return True
     return not (group_q == "Q1" and is_user_only(q))
 
 
-def comparison_table(d: pd.DataFrame, q: str, group_q: str) -> pd.DataFrame:
+def comparison_table(d: pd.DataFrame, q: str, group_q: str, mode: str = MODE_FILTRE) -> pd.DataFrame:
     """Une ligne par groupe : n applicable, n valide, n manquant, n non applicable."""
-    st = status_frame(d)
+    st = status_frame(d, mode)
     opts = QUESTIONS[group_q]["options"]
     rows = []
     for i, lab in enumerate(opts, 1):

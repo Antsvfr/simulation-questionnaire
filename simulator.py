@@ -1,4 +1,6 @@
-"""Génération d'un échantillon synthétique (Q1–Q15)."""
+"""Génération d'un échantillon synthétique conforme au questionnaire original (Q1–Q15, voir
+survey_config.py). Q5–Q8 et Q13–Q15 ont 8 modalités distinctes ; Q9–Q12 en ont 5.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,12 +8,20 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from survey_config import (ALL_QS, BANNER, CATEGORICAL, QUESTIONS, codebook, filters_table,
-                           is_applicable)
+from survey_config import (ALL_QS, MODE_FILTRE, QUESTIONNAIRE_VERSION, QUESTIONS, is_applicable)
 
 PROFILS = ["Appétence faible", "Appétence intermédiaire", "Appétence élevée"]
 PROFIL_COL = "Profil_latent_simulé"
 STATUTS = ["répondu", "non_applicable", "manquant"]
+
+# Facteur de passage d'une échelle 1–6 (ancienne version) à une échelle 1–8 (questionnaire original) :
+# new = 1 + (old - 1) * K8. Appliqué aux moyennes et aux écarts-types des questions à 8 modalités, pour
+# que leur dispersion occupe proportionnellement la même place dans leur échelle qu'une échelle à 6
+# niveaux l'aurait fait. Les coefficients appliqués à des entrées elles-mêmes non rescalées (trait
+# latent L, niveau d'études) sont multipliés par K8 ; les coefficients reliant deux questions à 8
+# modalités entre elles (ex. Q7 dépend de Q5) restent inchangés à condition d'utiliser la nouvelle
+# moyenne de la question source (voir le calcul ci-dessous).
+K8 = 7 / 5
 
 
 @dataclass
@@ -25,6 +35,8 @@ class SimParams:
     force_latent: float = 1.0                # multiplie le lien du trait latent avec Q5, Q7, Q9, Q12–Q15
     lien_q10_latent: float = 0.0             # DÉSACTIVÉ par défaut : aucune association imposée
     lien_q10_age: float = 0.0                # DÉSACTIVÉ par défaut
+    filter_mode: str = MODE_FILTRE           # "simulation_filtree" ou "sans_branchement"
+    version: str = QUESTIONNAIRE_VERSION     # identifiant de la structure du questionnaire modélisée
 
 
 NIVEAU_P = {1: (0.95, 0.05, 0, 0), 2: (0.45, 0.35, 0.18, 0.02),
@@ -65,12 +77,17 @@ def _choice(rng, p, n):
 
 
 def _lik(rng, mu, signal, noise, levels):
+    """Tire une réponse ordinale 1..levels : valeur latente continue (moyenne + signal + bruit),
+    arrondie puis bornée. Toutes les modalités autorisées restent atteignables (la probabilité
+    décroît dans les extrémités mais n'est jamais nulle), sans qu'elles apparaissent forcément dans
+    un petit échantillon."""
     raw = mu + signal + rng.normal(0, noise, size=len(signal))
     return np.clip(np.rint(raw), 1, levels).astype(int)
 
 
 def simulate(params: SimParams | None = None) -> pd.DataFrame:
-    """DataFrame de codes numériques ; NaN = non applicable OU manquant (voir `status_frame`)."""
+    """DataFrame de codes numériques ; NaN = non applicable (selon le mode) OU manquant (voir
+    `status_frame`). Mêmes graine + paramètres + version → mêmes données."""
     p = params or SimParams()
     rng = np.random.default_rng(p.seed)
     n, f = p.n, p.force_latent
@@ -91,17 +108,22 @@ def simulate(params: SimParams | None = None) -> pd.DataFrame:
         prob = 1 / (1 + np.exp(-(z0 + _calibrate_intercept(z0, p.taux_usage))))
         q1 = np.where(u < prob, 1, 2)  # 1 = Oui, 2 = Non
 
-    q5 = _lik(rng, 3.9, 0.9 * f * L, 0.9, 6)
-    q6 = _lik(rng, 3.6, 0.5 * f * L, 0.9, 6)
-    q7 = _lik(rng, 3.7, 0.6 * f * L + 0.3 * (q5 - 3.9), 0.8, 6)
-    q8 = _lik(rng, 4.0, 0.3 * (niveau - 2.5), 1.0, 6)
-    q9 = _lik(rng, 3.4, 0.8 * f * L + 0.3 * (q5 - 3.9), 0.7, 5)
+    # --- Q5–Q8, Q13–Q15 : 8 modalités distinctes (voir K8 ci-dessus pour la logique de rescale) ---
+    MU5, MU6, MU7, MU8 = 1 + 2.9 * K8, 1 + 2.6 * K8, 1 + 2.7 * K8, 1 + 3.0 * K8
+    MU13, MU14, MU15 = 1 + 2.9 * K8, 1 + 2.5 * K8, 1 + 2.8 * K8
+    q5 = _lik(rng, MU5, 0.9 * K8 * f * L, 0.9 * K8, 8)
+    q6 = _lik(rng, MU6, 0.5 * K8 * f * L, 0.9 * K8, 8)
+    q7 = _lik(rng, MU7, 0.6 * K8 * f * L + 0.3 * (q5 - MU5), 0.8 * K8, 8)
+    q8 = _lik(rng, MU8, 0.3 * K8 * (niveau - 2.5), 1.0 * K8, 8)
+    q13 = _lik(rng, MU13, 0.6 * K8 * f * L, 1.0 * K8, 8)
+    q14 = _lik(rng, MU14, 0.5 * K8 * f * L, 1.0 * K8, 8)
+    q15 = _lik(rng, MU15, 0.6 * K8 * f * L, 1.0 * K8, 8)
+
+    # --- Q9–Q12 : 5 modalités d'accord, inchangées ----------------------------------------------
+    q9 = _lik(rng, 3.4, 0.8 * f * L + 0.3 * (q5 - MU5), 0.7, 5)
     q10 = _lik(rng, 3.8, p.lien_q10_latent * L + p.lien_q10_age * (age - 2.5), 1.0, 5)
     q11 = _lik(rng, 3.6, 0 * L, 1.0, 5)  # indépendante du trait latent
     q12 = _lik(rng, 3.3, 0.7 * f * L, 0.8, 5)
-    q13 = _lik(rng, 3.9, 0.6 * f * L, 1.0, 6)
-    q14 = _lik(rng, 3.5, 0.5 * f * L, 1.0, 6)
-    q15 = _lik(rng, 3.8, 0.6 * f * L, 1.0, 6)
 
     df = pd.DataFrame({"ID": [f"SYN-{i:03d}" for i in range(1, n + 1)],
                        "Q1": q1, "Q2": age, "Q3": genre, "Q4": niveau, "Q5": q5, "Q6": q6,
@@ -109,7 +131,7 @@ def simulate(params: SimParams | None = None) -> pd.DataFrame:
                        "Q13": q13, "Q14": q14, "Q15": q15})
     df[ALL_QS] = df[ALL_QS].astype(float)
 
-    applicable = pd.DataFrame({q: is_applicable(q, df["Q1"]) for q in ALL_QS})
+    applicable = pd.DataFrame({q: is_applicable(q, df["Q1"], p.filter_mode) for q in ALL_QS})
     df = df.mask(~applicable.reindex(columns=df.columns, fill_value=True))  # non applicable → NaN
     for q in ALL_QS[1:]:  # non-réponse accidentelle (Q1 jamais manquante)
         hit = applicable[q] & (rng.random(n) < p.taux_manquants)
@@ -122,24 +144,27 @@ def simulate(params: SimParams | None = None) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------------------- liens programmés
-# Décrit, pour chaque question à 5/6 niveaux, comment son signal est construit dans simulate() :
+# Décrit, pour chaque question à 5/8 niveaux, comment son signal est construit dans simulate() :
 # coefficient du trait latent L (fonction des paramètres), et dépendances directes à d'autres
 # questions déjà tirées. Sert uniquement à expliquer d'où peuvent venir des corrélations observées.
+# Les coefficients ci-dessous sont ceux réellement appliqués dans simulate() (K8 déjà inclus pour les
+# questions à 8 modalités) : aucune duplication de constantes « magiques » ailleurs dans le code.
 def _latent_coef(p: SimParams) -> dict:
     f = p.force_latent
-    return {"Q5": 0.9 * f, "Q6": 0.5 * f, "Q7": 0.6 * f, "Q8": 0.0, "Q9": 0.8 * f,
-            "Q10": p.lien_q10_latent, "Q11": 0.0, "Q12": 0.7 * f, "Q13": 0.6 * f,
-            "Q14": 0.5 * f, "Q15": 0.6 * f}
+    return {"Q5": 0.9 * K8 * f, "Q6": 0.5 * K8 * f, "Q7": 0.6 * K8 * f, "Q8": 0.0, "Q9": 0.8 * f,
+            "Q10": p.lien_q10_latent, "Q11": 0.0, "Q12": 0.7 * f, "Q13": 0.6 * K8 * f,
+            "Q14": 0.5 * K8 * f, "Q15": 0.6 * K8 * f}
 
 
 DIRECT_LINKS = {"Q7": [("Q5", 0.3)], "Q9": [("Q5", 0.3)]}  # dépendance directe à la valeur tirée de Q5
-NIVEAU_LINKS = {"Q8": 0.3}       # dépend du niveau d'études, pas du trait latent
+NIVEAU_LINKS = {"Q8": 0.3 * K8}  # dépend du niveau d'études, pas du trait latent
 AGE_LINKS_FN = {"Q10": lambda p: p.lien_q10_age}  # 0 par défaut
 
 
 def programmed_link_note(qa: str, qb: str, params: SimParams) -> str:
     """Explique, à partir des coefficients réellement utilisés par `params`, pourquoi deux questions
-    pourraient être corrélées (facteur latent commun, dépendance directe) ou non.
+    pourraient être corrélées (facteur latent commun, dépendance directe) ou non. Ne recherche ni ne
+    promet aucune corrélation précise : décrit seulement la construction du modèle.
     """
     lat = _latent_coef(params)
     la, lb = lat.get(qa, 0.0), lat.get(qb, 0.0)
@@ -170,19 +195,20 @@ def programmed_link_note(qa: str, qb: str, params: SimParams) -> str:
     return " ".join(bits)
 
 
-def status_frame(df: pd.DataFrame) -> pd.DataFrame:
-    """Statut de chaque cellule : répondu / non_applicable / manquant."""
+def status_frame(df: pd.DataFrame, mode: str = MODE_FILTRE) -> pd.DataFrame:
+    """Statut de chaque cellule : répondu / non_applicable / manquant, selon le mode de filtrage
+    (« simulation_filtree » ou « sans_branchement » — voir survey_config.is_applicable)."""
     out = {}
     for q in ALL_QS:
-        applicable = is_applicable(q, df["Q1"])
+        applicable = is_applicable(q, df["Q1"], mode)
         out[q] = np.where(~applicable, "non_applicable",
                           np.where(df[q].isna(), "manquant", "répondu"))
     return pd.DataFrame(out, index=df.index)
 
 
-def effectifs(df: pd.DataFrame) -> pd.DataFrame:
+def effectifs(df: pd.DataFrame, mode: str = MODE_FILTRE) -> pd.DataFrame:
     """Effectifs par question : posée à, répondu, non applicable, manquant."""
-    st = status_frame(df)
+    st = status_frame(df, mode)
     rows = []
     for q in ALL_QS:
         c = st[q].value_counts()
@@ -191,5 +217,3 @@ def effectifs(df: pd.DataFrame) -> pd.DataFrame:
                      "Non applicable": int(c.get("non_applicable", 0)),
                      "Manquant (accidentel)": int(c.get("manquant", 0))})
     return pd.DataFrame(rows)
-
-

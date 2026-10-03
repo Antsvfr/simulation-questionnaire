@@ -11,8 +11,10 @@ import streamlit as st
 
 import exports as ex
 from simulator import SimParams, effectifs, programmed_link_note, simulate, status_frame
-from survey_config import (ALL_QS, BANNER, CATEGORICAL, GROUPS, QUESTIONS, SCALE_QS, SHORT_HDR,
-                           filters_table, group_of, is_user_only, scale_help, short)
+from survey_config import (AGREE_QS, ALL_QS, BANNER, CATEGORICAL, FILTER_MODE_LABELS, FILTER_MODES,
+                           GROUPS, HYPOTHETICAL_NOTE, MODE_FILTRE, MODE_LIBRE, QUESTIONNAIRE_VERSION,
+                           QUESTIONS, SCALE8_QS, SCALE_QS, SHORT_HDR, filters_table, group_of,
+                           is_user_only, scale_help, short)
 from views import (COL_MISS, COL_NA, COL_NB_MISS, COL_STATUT_Q, COMPLET, LATENT_COL, MIN_PAIRS,
                    MISS_TXT, NA_TXT, SMALL_N_RULE, VARS, Filters, codes_frame, comparison_available,
                    comparison_distribution, comparison_table, composition_table, counts,
@@ -23,7 +25,7 @@ from views import (COL_MISS, COL_NA, COL_NB_MISS, COL_STATUT_Q, COMPLET, LATENT_
 st.set_page_config(page_title="Simulation questionnaire IA & éducation", page_icon="🧪",
                    layout="wide")
 
-SEQ6 = ["#b2182b", "#ef8a62", "#fddbc7", "#d1e5f0", "#67a9cf", "#2166ac"]       # 1→6, pôles marqués
+SEQ8 = ["#b2182b", "#d6604d", "#f4a582", "#fddbc7", "#d1e5f0", "#92c5de", "#4393c3", "#2166ac"]  # 1→8
 SEQ5 = ["#b2182b", "#ef8a62", "#f0c330", "#67a9cf", "#2166ac"]                 # 1→5, neutre = or (≠ gris « absent »)
 CAT_SEQ = px.colors.qualitative.Safe
 OBS_COLOR, THEORY_COLOR = "#2166ac", "#9ca3af"
@@ -49,7 +51,8 @@ ICONS = {"Vue d'ensemble": "🏠", "Échantillon": "🧑‍🤝‍🧑", "Analys
 
 # ============================================================================ état de session
 WIDGET_DEFAULTS = {"w_n": 100, "w_seed": 42, "w_taux": 80, "w_manq": 2, "w_a1": 10, "w_a2": 62,
-                   "w_a3": 20, "w_a4": 8, "w_force": 1.0, "w_l10": 0.0, "w_l10a": 0.0}
+                   "w_a3": 20, "w_a4": 8, "w_force": 1.0, "w_l10": 0.0, "w_l10a": 0.0,
+                   "w_mode": MODE_FILTRE}
 FILTER_DEFAULTS = {"f_search": "", "f_age": [], "f_genre": [], "f_niv": [], "f_use": [],
                    "f_comp": "Tous"}
 OTHER_DEFAULTS = {"nav": SECTIONS[0], "ech_sub": "Composition", "show_internal": False,
@@ -64,14 +67,16 @@ def draft_params():
         return None
     return SimParams(n=int(s.w_n), seed=int(s.w_seed), taux_usage=s.w_taux / 100, age_weights=ages,
                      taux_manquants=s.w_manq / 100, force_latent=float(s.w_force),
-                     lien_q10_latent=float(s.w_l10), lien_q10_age=float(s.w_l10a))
+                     lien_q10_latent=float(s.w_l10), lien_q10_age=float(s.w_l10a),
+                     filter_mode=s.w_mode)
 
 
 def generate(params: SimParams):
     """Seule fonction qui remplace l'échantillon actif (paramètres + données + vues dérivées)."""
     df = simulate(params)
     st.session_state.sample = {
-        "params": params, "df": df, "readable": readable_frame(df), "codes": codes_frame(df),
+        "params": params, "df": df, "readable": readable_frame(df, params.filter_mode),
+        "codes": codes_frame(df, params.filter_mode),
         "sid": st.session_state.get("sample", {}).get("sid", 0) + 1}
     st.session_state.pop("analysis_export", None)
 
@@ -106,12 +111,41 @@ def goto(section):
 
 for k, v in {**WIDGET_DEFAULTS, **FILTER_DEFAULTS, **OTHER_DEFAULTS}.items():
     st.session_state.setdefault(k, list(v) if isinstance(v, list) else v)
-if "sample" not in st.session_state:
+
+# Incompatibilité de version : un échantillon généré sous une structure de questionnaire différente
+# (p. ex. échelles à 6 niveaux d'une version antérieure) n'est jamais réinterprété silencieusement
+# sous la structure actuelle (8 niveaux). Il est conservé tel quel, de côté, et un nouvel échantillon
+# doit être généré explicitement.
+if "sample" in st.session_state:
+    _old_version = getattr(st.session_state.sample.get("params"), "version", None)
+    if _old_version != QUESTIONNAIRE_VERSION:
+        st.session_state["incompatible_sample"] = st.session_state.pop("sample")
+
+if "sample" not in st.session_state and "incompatible_sample" not in st.session_state:
     generate(draft_params())
+
+if "sample" not in st.session_state:
+    old = st.session_state["incompatible_sample"]
+    old_v = getattr(old["params"], "version", "antérieure à cette fonctionnalité")
+    st.error(
+        "⚠️ **Échantillon précédent incompatible.** Il a été généré sous une version différente du "
+        f"questionnaire (**{old_v}**), avec une structure de modalités différente de la version "
+        f"actuelle (**{QUESTIONNAIRE_VERSION}**, 8 modalités distinctes pour Q5–Q8 et Q13–Q15). Pour "
+        "ne jamais confondre des codes qui ne signifient pas la même chose, ces anciennes réponses ne "
+        "sont **pas** converties automatiquement. Elles restent disponibles ci-dessous pour mémoire.")
+    with st.expander("Paramètres de l'ancien échantillon (conservé, non utilisé)"):
+        st.write(old["params"])
+        st.caption(f"{len(old['df'])} profils générés sous cette ancienne version.")
+    if st.button("🎲 Générer un nouvel échantillon (version actuelle, 8 modalités)", type="primary"):
+        generate(draft_params())
+        st.session_state.pop("incompatible_sample", None)
+        st.rerun()
+    st.stop()
 
 S = st.session_state.sample
 params, DF, READ, CODES = S["params"], S["df"], S["readable"], S["codes"]
 N = len(DF)
+MODE = params.filter_mode
 
 
 def current_filters() -> Filters:
@@ -153,7 +187,7 @@ def need_rows(d, msg=None) -> bool:
 
 def ordinal_bar(d: pd.DataFrame, q: str) -> go.Figure:
     spec = QUESTIONS[q]
-    colors = SEQ6 if spec["levels"] == 6 else SEQ5
+    colors = SEQ8 if spec["levels"] == 8 else SEQ5
     t = question_distribution(d, q)
     fig = go.Figure(go.Bar(x=t["Modalité"], y=t["% des réponses valides"], marker_color=colors,
                            text=t["Effectif"].map(lambda v: f"{v}"), textposition="outside",
@@ -191,13 +225,22 @@ def mini_composition(d, q, height=230):
 # ============================================================================ barre latérale
 sb = st.sidebar
 sb.caption(f"🔒 {MINI_BANNER}")
-sb.markdown(f"**Échantillon actif : {N} profils** · graine **{params.seed}**")
+sb.markdown(f"**Échantillon actif : {N} profils** · graine **{params.seed}**  \n"
+           f"Version **{params.version}** · {FILTER_MODE_LABELS.get(MODE, MODE)}")
 if st.session_state.get("seed_msg"):
     sb.success(st.session_state.pop("seed_msg"))
 
 with sb.expander("⚙️ Configurer la simulation", expanded=False):
     st.caption("Modifier ces réglages ne change rien tant que vous n'avez pas cliqué sur un bouton "
                "de génération ci-dessous.")
+    st.radio("Mode de parcours du questionnaire", FILTER_MODES, key="w_mode",
+             format_func=lambda m: FILTER_MODE_LABELS[m],
+             help="« Simulation avec filtres » : conventions actuelles (certaines questions exclues "
+             "pour les non-utilisateurs, voir le détail dans Exports et méthode). « Questionnaire sans "
+             "branchement » : toutes les questions posées à tous ; les réponses des non-utilisateurs "
+             "aux questions d'expérience sont alors hypothétiques. Le texte fourni ne prouve aucun "
+             "branchement Qualtrics réel : les deux modes sont des choix explicites, pas un fait "
+             "démontré du questionnaire original.")
     st.slider("Taille de l'échantillon", 20, 500, key="w_n", step=10)
     st.number_input("Graine aléatoire", 0, 10**6, key="w_seed")
     st.slider("Taux d'utilisation de l'IA visé (Q1 = Oui)", 0, 100, key="w_taux", step=5, format="%d %%")
@@ -247,11 +290,13 @@ h2.markdown(f"<div style='text-align:right;padding-top:.6rem;color:#8a6d00;font-
 nav = st.segmented_control("Section", SECTIONS, key="nav", required=True,
                            label_visibility="collapsed",
                            format_func=lambda s: f"{ICONS[s]} {s}")
+if MODE == MODE_LIBRE:
+    st.warning(f"🧭 {HYPOTHETICAL_NOTE}")
 st.divider()
 
 # ============================================================================ A. Vue d'ensemble
 if nav == "Vue d'ensemble":
-    C = counts(FDF)
+    C = counts(FDF, MODE)
     m = st.columns(3)
     m[0].metric("Profils générés", N, help="Nombre total de profils synthétiques produits par la "
                "dernière génération, avant tout filtre.")
@@ -355,7 +400,10 @@ elif nav == "Échantillon":
                           else st.column_config.TextColumn(lab, help=scale_help(q)))
             st.dataframe(table, hide_index=True, width="stretch", height=420, column_config=cfg)
             st.caption(f"« {NA_TXT} » (question non posée) et « {MISS_TXT} » (question applicable sans "
-                       "réponse) sont toujours distincts dans l'affichage lisible.")
+                       "réponse) sont toujours distincts dans l'affichage lisible. Survolez un en-tête "
+                       "pour voir la question complète et ses modalités.")
+            st.caption(f"Questions à 8 modalités distinctes : {', '.join(SCALE8_QS)}. "
+                       f"Questions à 5 modalités d'accord : {', '.join(AGREE_QS)}.")
             set_export("reponses_individuelles", table)
 
             st.markdown("#### 🪪 Fiche individuelle")
@@ -375,7 +423,7 @@ elif nav == "Échantillon":
                 if st.session_state.show_internal:
                     st.markdown(f"<span class='badge-internal'>⚙ Profil latent simulé (interne) : "
                                f"{rrow[LATENT_COL]}</span>", unsafe_allow_html=True)
-                stat = status_frame(DF[DF["ID"] == pid]).iloc[0]
+                stat = status_frame(DF[DF["ID"] == pid], MODE).iloc[0]
                 lines = []
                 for q in ALL_QS:
                     spec = QUESTIONS[q]
@@ -400,10 +448,10 @@ elif nav == "Analyse par question":
         if spec["kind"] == "single":
             st.caption("Modalités : " + " / ".join(spec["options"]))
         else:
-            st.caption(f"Échelle 1 à {spec['levels']} — " +
-                      " ; ".join(f"{k} = {v}" for k, v in spec["anchors"].items()))
+            st.caption(f"{spec['levels']} modalités distinctes (code → libellé) : " +
+                      " ; ".join(f"{k} → {v}" for k, v in spec["anchors"].items()))
 
-        ov = question_overview(FDF, q)
+        ov = question_overview(FDF, q, MODE)
         c = st.columns(3)
         c[0].metric("Réponses valides", ov["valides"], help="Sur les profils sélectionnés.")
         c[1].metric("Manquantes", ov["manquants"], help="Question applicable, restée sans réponse.")
@@ -447,15 +495,15 @@ elif nav == "Comparaisons":
     group_q = c2.selectbox("Regrouper par", group_opts, format_func=short, key="cmp_group")
 
     if not need_rows(FDF):
-        if not comparison_available(q, group_q):
+        if not comparison_available(q, group_q, MODE):
             st.info(f"**Comparaison non disponible.** {short(q)} n'est posée qu'aux utilisateurs de "
                     f"l'IA : comparer ses réponses selon « utilise l'IA » (Q1) n'a pas de sens, puisque "
                     f"les non-utilisateurs n'ont par construction aucune réponse applicable. Choisissez "
                     f"un autre regroupement (âge, genre, niveau d'études).")
-            ct = comparison_table(FDF, q, group_q)
+            ct = comparison_table(FDF, q, group_q, MODE)
             st.dataframe(ct, hide_index=True, width="stretch")
         else:
-            ct = comparison_table(FDF, q, group_q)
+            ct = comparison_table(FDF, q, group_q, MODE)
             st.markdown("**Effectifs par groupe**")
             st.dataframe(ct, hide_index=True, width="stretch")
             empty_groups = ct.loc[ct["Réponses valides"] == 0, group_q].tolist()
@@ -472,10 +520,10 @@ elif nav == "Comparaisons":
             else:
                 spec = QUESTIONS[q]
                 labels = (spec["options"] if spec["kind"] == "single" else
-                         [f"{c}/{spec['levels']}" for c in range(1, spec["levels"] + 1)])
+                         [spec["anchors"][c] for c in range(1, spec["levels"] + 1)])
                 dist["Modalité"] = dist["Code"].map(lambda c: labels[c - 1])
                 colors = (CAT_SEQ if spec["kind"] == "single" else
-                         (SEQ6 if spec["levels"] == 6 else SEQ5))
+                         (SEQ8 if spec["levels"] == 8 else SEQ5))
                 fig = px.bar(dist, x=group_q, y="% du groupe", color="Modalité", text=dist["Effectif"],
                             category_orders={"Modalité": labels, group_q: QUESTIONS[group_q]["options"]},
                             color_discrete_sequence=colors)
@@ -552,9 +600,9 @@ elif nav == "Exports et méthode":
     with e1:
         st.caption(f"{N} profils · graine {params.seed}")
         d1, d2, d3 = st.columns(3)
-        d1.download_button("⬇️ CSV — réponses lisibles", ex.csv_readable(DF),
+        d1.download_button("⬇️ CSV — réponses lisibles", ex.csv_readable(DF, MODE),
                            ex.filename("lisibles", "csv", params, "tout", N), "text/csv", width="stretch")
-        d2.download_button("⬇️ CSV — codes et statuts", ex.csv_codes(DF),
+        d2.download_button("⬇️ CSV — codes et statuts", ex.csv_codes(DF, MODE),
                            ex.filename("codes_statuts", "csv", params, "tout", N), "text/csv", width="stretch")
         d3.download_button("⬇️ Excel (5 feuilles)", ex.excel_bytes(DF, params, f"Ensemble ({N})", N, None, True),
                            ex.filename("classeur", "xlsx", params, "tout", N),
@@ -568,9 +616,9 @@ elif nav == "Exports et méthode":
             pass
         else:
             d1, d2, d3 = st.columns(3)
-            d1.download_button("⬇️ CSV — réponses lisibles", ex.csv_readable(FDF),
+            d1.download_button("⬇️ CSV — réponses lisibles", ex.csv_readable(FDF, MODE),
                                ex.filename("lisibles", "csv", params, "filtre", NF), "text/csv", width="stretch")
-            d2.download_button("⬇️ CSV — codes et statuts", ex.csv_codes(FDF),
+            d2.download_button("⬇️ CSV — codes et statuts", ex.csv_codes(FDF, MODE),
                                ex.filename("codes_statuts", "csv", params, "filtre", NF), "text/csv", width="stretch")
             d3.download_button("⬇️ Excel (5 feuilles)",
                                ex.excel_bytes(FDF, params, f"Filtré ({NF} sur {N})", N, FILT, False),
@@ -593,8 +641,10 @@ elif nav == "Exports et méthode":
     st.divider()
     st.markdown("### Méthode et limites")
     with st.expander("Graine et paramètres de l'échantillon actif", expanded=False):
-        pdict = {"Taille": params.n, "Graine": params.seed, "Taux d'usage visé": params.taux_usage,
-                "Répartition d'âge saisie": params.age_weights, "Pondérations genre": params.genre_weights,
+        pdict = {"Version du questionnaire": params.version, "Mode de filtrage":
+                FILTER_MODE_LABELS.get(MODE, MODE), "Taille": params.n, "Graine": params.seed,
+                "Taux d'usage visé": params.taux_usage, "Répartition d'âge saisie": params.age_weights,
+                "Pondérations genre": params.genre_weights,
                 "Non-réponse accidentelle": params.taux_manquants, "Force lien trait latent": params.force_latent,
                 "Lien trait latent → Q10": params.lien_q10_latent, "Lien âge → Q10": params.lien_q10_age}
         st.dataframe(pd.DataFrame({"Valeur": {k: str(v) for k, v in pdict.items()}}), width="stretch")
@@ -608,22 +658,42 @@ elif nav == "Exports et méthode":
             "indépendante. **Q10 : aucune association par défaut** (réglable dans « Associations "
             "programmées (avancé) »).\n"
             "- Le « profil latent simulé » est une information interne au modèle ; aucun profil n'est réel.")
-    with st.expander("Règles de non-applicabilité et définition des données manquantes"):
-        st.dataframe(pd.DataFrame(filters_table(), columns=["Question", "Posée à", "Nature de la règle"]),
+    with st.expander("Mode de parcours et règles de non-applicabilité"):
+        st.markdown(f"**Mode actif : {FILTER_MODE_LABELS.get(MODE, MODE)}**")
+        if MODE == MODE_LIBRE:
+            st.markdown(f"- {HYPOTHETICAL_NOTE}")
+        else:
+            st.markdown(
+                "- Le texte du questionnaire fourni ne prouve aucun branchement Qualtrics réel : les "
+                "exclusions ci-dessous sont des choix explicites de ce mode, pas un fait démontré.\n"
+                "- **Non applicable** : question non posée à ce profil par une règle définie pour cette "
+                "simulation (jamais une exigence du professeur, jamais un oubli).")
+        st.dataframe(pd.DataFrame(filters_table(MODE), columns=["Question", "Posée à", "Nature de la règle"]),
                     hide_index=True, width="stretch")
         st.markdown(
-            "- **Non applicable** : question non posée à ce profil par une règle définie pour cette "
-            "simulation (jamais une exigence du professeur, jamais un oubli).\n"
             "- **Manquant** : question applicable restée sans réponse — non-réponse accidentelle simulée "
-            "(réglable). Les deux sont toujours distingués dans les tableaux et les exports (`Qx_statut`).")
+            "(réglable). Non applicable et manquant sont toujours distingués (tableaux, exports `Qx_statut`) "
+            "et aucune modalité « Je ne sais pas » n'est ajoutée (absente du questionnaire original).\n"
+            "- Les deux modes ne sont jamais mélangés : un échantillon est généré entièrement sous l'un "
+            "ou l'autre (le mode est enregistré avec ses paramètres et dans chaque export).")
     with st.expander("Limites des résultats"):
         st.markdown(
             "- Échantillon **synthétique** : aucune inférence sur de vrais étudiants.\n"
-            "- Q9 à Q12 (5 modalités) et Q5–Q8, Q13–Q15 (6 modalités) ne sont **jamais combinées en un "
-            "score global** : elles mesurent des dimensions différentes.\n"
+            "- Q9 à Q12 (5 modalités) et Q5–Q8, Q13–Q15 (8 modalités distinctes) ne sont **jamais "
+            "combinées en un score global** : elles mesurent des dimensions différentes.\n"
+            "- **Test d'attention absent de cette version** du questionnaire : aucun résultat de "
+            "réussite/échec n'est calculé ou affiché, et aucun profil n'est écarté pour ce motif.\n"
+            "- **Q8 n'est pas une variable Oui/Non** et n'est jamais recodée en binaire. Une variable "
+            "dérivée **Q1_binaire** (Oui=1, Non=0) est proposée dans les exports « codes », en plus de "
+            "Q1 d'origine conservée telle quelle ; elle ne répond à aucune consigne de recodage de Q8 "
+            "d'un autre questionnaire.\n"
+            "- Les variables nominales (genre, niveau d'études, utilisation de l'IA…) ne sont jamais "
+            "moyennées ni corrélées comme des échelles ordinales.\n"
             f"- {SMALL_N_RULE}\n"
             "- Une corrélation n'établit pas une causalité ; certaines proviennent des règles de "
-            "génération (voir « Relations entre réponses »), d'autres du hasard d'échantillonnage.\n"
+            "génération (voir « Relations entre réponses »), d'autres du hasard d'échantillonnage. Les "
+            "paramètres de génération ne sont pas réglés pour obtenir une conclusion, une corrélation "
+            "précise ou un résultat significatif prédéterminés.\n"
             "- Aucun test de significativité n'est calculé par défaut dans les comparaisons de groupes.")
 
 st.divider()

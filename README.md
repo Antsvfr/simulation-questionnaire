@@ -48,27 +48,53 @@ sélectionnés sur N » et un bouton « Réinitialiser les filtres » sont toujo
 
 ## Questionnaire
 
+Conforme exactement au questionnaire original fourni (identifiant de version **`IA_ORIGINAL_15Q_8MOD`**,
+affiché dans la barre latérale et dans chaque export) :
+
 | Q | Échelle |
 |---|---|
 | Q1–Q4 | Catégorielles, codes 1…n dans l'ordre des modalités |
-| Q5–Q8, Q13–Q15 | 1–6 (extrémités nommées ; Q13 Réducteur→Stimulant, Q14 Négatif→Positif, Q15 Impersonnelle→Personnalisée) |
+| Q5–Q8, Q13–Q15 | **8 modalités distinctes** (pas 6) : code 1 et code 8 = ancrages du questionnaire (ex. « Pas du tout » / « Énormément ») ; codes 2 à 7 = libellés numériques « 1 » à « 6 » utilisés tels quels |
 | Q9–Q12 | Accord à 5 niveaux : 1 Pas du tout d'accord · 2 Plutôt pas d'accord · 3 Neutre · 4 Plutôt d'accord · 5 Tout à fait d'accord |
 
-Les échelles à 5 et 6 niveaux sont toujours présentées séparément. **Aucun score global n'est calculé sur
-Q9–Q12** (dimensions différentes).
+Les questions à 5 et à 8 modalités sont toujours présentées séparément (couleurs, graphiques, aucune moyenne
+commune). **Aucun score global n'est calculé sur Q9–Q12**. **Q8 n'est jamais recodée en binaire** (ce n'est pas
+une variable Oui/Non) ; une variable dérivée **`Q1_binaire`** (Oui=1, Non=0) est proposée dans les exports
+« codes », en plus de Q1 d'origine. **Aucun test d'attention** n'existe dans ce questionnaire : l'application
+l'indique explicitement et ne calcule ni résultat de réussite/échec ni exclusion de profil pour ce motif.
+
+### Compatibilité de version
+
+Si un échantillon a été généré sous une structure différente (p. ex. une version antérieure à 6 niveaux), il
+n'est **jamais** réinterprété silencieusement sous la structure actuelle : l'application affiche une erreur
+explicite, conserve l'ancien échantillon de côté (consultable, non utilisé) et exige un clic explicite sur
+« Générer un nouvel échantillon » avant de continuer.
+
+## Deux modes de parcours (barre latérale → Configurer la simulation)
+
+Le texte du questionnaire fourni ne prouve aucun branchement Qualtrics réel : deux modes sont donc proposés
+explicitement, jamais mélangés dans un même échantillon (le mode actif est affiché, enregistré avec les
+paramètres et dans chaque export) :
+
+- **Simulation avec filtres** (par défaut) : conventions actuelles du simulateur — certaines questions
+  d'expérience (Q5, Q7, Q8, Q9, Q11, Q12) sont exclues (non applicables) pour les non-utilisateurs de l'IA.
+- **Questionnaire sans branchement** : toutes les questions sont posées à tous les profils, y compris aux
+  non-utilisateurs. Leurs réponses à ces questions d'expérience sont alors **hypothétiques** — un bandeau le
+  rappelle sur chaque page et dans la méthode.
 
 ## Non applicable ≠ manquant
 
-- **Non applicable** : question non posée à ce répondant.
-- **Manquant** : non-réponse accidentelle simulée (paramètre, 2 % par défaut, sur les cellules applicables Q2–Q15).
+- **Non applicable** : question non posée à ce répondant (uniquement en mode « simulation avec filtres »).
+- **Manquant** : non-réponse accidentelle simulée (paramètre, 2 % par défaut, sur les cellules applicables).
 - Dans les codes, les deux sont des cellules vides ; les colonnes `Qx_statut` (`répondu` / `non_applicable` /
-  `manquant`) les distinguent. L'application affiche le *n utilisé* partout et un tableau d'effectifs.
+  `manquant`) les distinguent. L'application affiche le *n utilisé* partout et un tableau d'effectifs. Aucune
+  modalité « Je ne sais pas » n'est ajoutée (absente du questionnaire original).
 
-### Filtres (non-utilisateurs : Q1 = Non)
+### Filtres (mode « simulation avec filtres », non-utilisateurs : Q1 = Non)
 - **Règle définie pour cette simulation** (jamais une exigence du professeur) — non applicables : **Q8, Q9, Q11, Q12**.
 - **Autre convention de la simulation, non vérifiée dans Qualtrics** : Q5 et Q7 aussi réservées aux utilisateurs ;
   Q6, Q10, Q13, Q14, Q15 posées à tous. Ces choix sont modifiables dans `survey_config.py` (`asked`/`rule`).
-  Le détail est dans « Exports et méthode » → *Règles de non-applicabilité et définition des données manquantes*.
+  Le détail est dans « Exports et méthode » → *Mode de parcours et règles de non-applicabilité*.
 
 ## Modèle de simulation (hypothèses, pas des résultats)
 
@@ -93,11 +119,14 @@ applicable **ou** manquant : voir `Qx_statut`.
 
 ## Validité des analyses
 
-- Aucun score global ; Q9–Q12 (5 modalités) et Q5–Q8, Q13–Q15 (6 modalités) restent séparées.
+- Aucun score global ; Q9–Q12 (5 modalités) et Q5–Q8, Q13–Q15 (8 modalités) restent toujours séparées.
 - Corrélations de Spearman sur paires complètes, uniquement entre échelles ordinales (jamais sur genre, âge, etc.) ;
-  refusées si n < 10 ou variable constante (« – » affiché, motif listé) ; n par paire affiché.
+  refusées si n < 10 ou variable constante (« – » affiché, motif listé) ; n par paire affiché. Les paramètres de
+  génération ne sont pas réglés pour obtenir une conclusion, une corrélation précise ou un résultat significatif.
 - Les réponses absentes ne sont jamais remplies : un questionnaire « complet » n'a aucune réponse accidentellement
   manquante parmi les questions applicables ; les non applicables ne comptent pas comme oubli.
+- Aucun test d'attention, aucun recodage binaire de Q8, aucune variable nominale moyennée ou corrélée comme une
+  échelle ordinale.
 
 ## Fichiers
 

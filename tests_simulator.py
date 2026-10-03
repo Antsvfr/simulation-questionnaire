@@ -4,10 +4,11 @@ import pandas as pd
 import pytest
 
 from simulator import PROFIL_COL, SimParams, effectifs, expected_distributions, simulate, status_frame
-from survey_config import AGREE5, ALL_QS, QUESTIONS, codebook
-from views import (COL_NB_MISS, COL_STATUT_Q, COMPLET, INCOMPLET, LATENT_COL, MISS_TXT, NA_TXT, Filters,
-                   codes_frame, composition_table, counts, filter_mask, fmt_answer, readable_frame,
-                   safe_spearman)
+from survey_config import (AGREE5, ALL_QS, EXPERIENCE_QS, MODE_FILTRE, MODE_LIBRE,
+                           QUESTIONNAIRE_VERSION, QUESTIONS, codebook, is_applicable)
+from views import (COL_NB_MISS, COL_STATUT_Q, COMPLET, INCOMPLET, MISS_TXT, NA_TXT, Q1_BIN_COL,
+                   Filters, codes_frame, composition_table, counts, filter_mask, fmt_answer,
+                   readable_frame, safe_spearman)
 
 MIN_NA = ["Q8", "Q9", "Q11", "Q12"]
 
@@ -17,18 +18,27 @@ def test_questionnaire_complet_et_echelles():
     for q in ("Q9", "Q10", "Q11", "Q12"):
         assert QUESTIONS[q]["levels"] == 5 and QUESTIONS[q]["anchors"] == AGREE5
     for q in ("Q5", "Q6", "Q7", "Q8", "Q13", "Q14", "Q15"):
-        assert QUESTIONS[q]["levels"] == 6
+        spec = QUESTIONS[q]
+        assert spec["levels"] == 8
+        assert set(spec["anchors"]) == set(range(1, 9))          # 8 modalités, toutes étiquetées
+        assert spec["anchors"][2] == "1" and spec["anchors"][7] == "6"  # codes 2..7 = libellés "1".."6"
     assert {r[0] for r in codebook()} == set(ALL_QS)
     assert all(QUESTIONS[q]["text"] for q in ALL_QS)
+    assert QUESTIONNAIRE_VERSION == "IA_ORIGINAL_15Q_8MOD"
+    assert SimParams().version == QUESTIONNAIRE_VERSION
+    assert EXPERIENCE_QS == ["Q5", "Q7", "Q8", "Q9", "Q11", "Q12"]
 
 
 def test_reproductible_et_graine():
     a, b = simulate(SimParams(seed=1)), simulate(SimParams(seed=1))
     assert a.equals(b)
     assert not a.equals(simulate(SimParams(seed=2)))
+    # même graine, mêmes paramètres, même version -> mêmes données (y compris mode de filtrage)
+    assert simulate(SimParams(seed=3, filter_mode=MODE_LIBRE)).equals(
+        simulate(SimParams(seed=3, filter_mode=MODE_LIBRE)))
 
 
-def test_codes_valides():
+def test_codes_valides_8_et_5_modalites():
     d = simulate(SimParams(n=400, seed=3))
     for q, spec in QUESTIONS.items():
         k = len(spec["options"]) if spec["kind"] == "single" else spec["levels"]
@@ -36,17 +46,39 @@ def test_codes_valides():
     assert d["Q1"].notna().all()
 
 
-def test_non_applicable_vs_manquant():
-    d = simulate(SimParams(n=500, seed=4, taux_manquants=0.1))
-    st = status_frame(d)
+def test_toutes_les_modalites_atteignables_y_compris_extremes():
+    d = simulate(SimParams(n=20000, seed=1, taux_manquants=0))
+    for q in ("Q5", "Q6", "Q7", "Q8", "Q13", "Q14", "Q15"):
+        assert set(d[q].dropna().astype(int)) == set(range(1, 9)), q  # les 2 extrémités incluses
+    for q in ("Q9", "Q10", "Q11", "Q12"):
+        assert set(d[q].dropna().astype(int)) == set(range(1, 6)), q
+
+
+def test_non_applicable_vs_manquant_mode_filtre():
+    d = simulate(SimParams(n=500, seed=4, taux_manquants=0.1, filter_mode=MODE_FILTRE))
+    st = status_frame(d, MODE_FILTRE)
     nonusers = d["Q1"] == 2
     for q in MIN_NA:
         assert (st.loc[nonusers, q] == "non_applicable").all()
     for q in ALL_QS:
         assert d.loc[st[q] != "répondu", q].isna().all() and d.loc[st[q] == "répondu", q].notna().all()
     assert (st == "manquant").to_numpy().sum() > 0
-    eff = effectifs(d)
+    eff = effectifs(d, MODE_FILTRE)
     assert (eff["Répondu (n utilisé)"] + eff["Non applicable"] + eff["Manquant (accidentel)"] == len(d)).all()
+
+
+def test_mode_sans_branchement_aucune_non_applicabilite():
+    d = simulate(SimParams(n=500, seed=4, taux_manquants=0.1, filter_mode=MODE_LIBRE))
+    st = status_frame(d, MODE_LIBRE)
+    assert (st != "non_applicable").to_numpy().all()
+    # les non-utilisateurs ont quand même une vraie valeur (hypothétique) aux questions d'expérience
+    nonusers = d["Q1"] == 2
+    for q in EXPERIENCE_QS:
+        reponded = st.loc[nonusers, q] == "répondu"
+        assert d.loc[nonusers & reponded, q].notna().all()
+    # les deux modes ne sont jamais mélangés : is_applicable dépend explicitement du mode demandé
+    assert is_applicable("Q8", d["Q1"], MODE_FILTRE).equals(~nonusers | (d["Q1"] == 1))
+    assert is_applicable("Q8", d["Q1"], MODE_LIBRE).all()
 
 
 @pytest.mark.parametrize("taux", [0.0, 1.0])
@@ -55,7 +87,7 @@ def test_zero_et_cent_pour_cent_utilisateurs(taux):
     c = counts(d)
     assert c["utilisateurs"] == (100 if taux == 1 else 0)
     if taux == 0:
-        assert c["non_applicables"] == 100 * 6 and c["complets"] == 100  # N/A ≠ oubli
+        assert c["non_applicables"] == 100 * len(MIN_NA + ["Q5", "Q7"]) and c["complets"] == 100
         assert d[["Q8", "Q9", "Q11", "Q12", "Q5", "Q7"]].isna().all().all()
     else:
         assert c["non_applicables"] == 0
@@ -89,16 +121,22 @@ def test_probabilites_parametrees_somment_a_1():
         assert abs(sum(p) - 1) < 1e-9, q
 
 
-def test_formats_lisibles():
-    assert fmt_answer("Q5", 4) == "4 sur 6"
-    assert fmt_answer("Q5", 1) == "1 sur 6 · Pas du tout"
-    assert fmt_answer("Q9", 3) == "3 sur 5 · Neutre"
+def test_formats_lisibles_8_modalites_sans_confondre_code_et_libelle():
+    # extrémités : ancrage du questionnaire ; codes intermédiaires : libellés numériques exacts
+    assert fmt_answer("Q5", 1) == "Pas du tout"
+    assert fmt_answer("Q5", 8) == "Énormément"
+    assert fmt_answer("Q5", 2) == "1"
+    assert fmt_answer("Q5", 7) == "6"
+    assert fmt_answer("Q5", 4) == "3"
+    assert fmt_answer("Q14", 1) == "Négatif" and fmt_answer("Q14", 8) == "Positif"
+    # 5 modalités (Q9-Q12) : libellé complet, jamais de "x sur 5"
+    assert fmt_answer("Q9", 3) == "Neutre"
+    assert fmt_answer("Q9", 1) == "Pas du tout d'accord"
+    # nominales
     assert fmt_answer("Q4", 3) == "Master"
-    assert fmt_answer("Q14", 6) == "6 sur 6 · Positif"
-    assert fmt_answer("Q14", 3) == "3 sur 6"  # aucun libellé intermédiaire inventé
 
 
-def test_lisible_vs_codes_coherents():
+def test_lisible_vs_codes_coherents_et_q1_binaire():
     d = simulate(SimParams(n=200, seed=8, taux_manquants=0.1))
     r, c = readable_frame(d), codes_frame(d)
     assert list(r["ID"]) == list(c["ID"]) == list(d["ID"])
@@ -112,6 +150,10 @@ def test_lisible_vs_codes_coherents():
                 assert rv == fmt_answer(q, cv)
     assert set(r[COL_STATUT_Q]) <= {COMPLET, INCOMPLET}
     assert (r[COL_NB_MISS] == (c[[f"{q}_statut" for q in ALL_QS]] == "manquant").sum(axis=1)).all()
+    # Q1_binaire : dérivée de Q1, Q1 d'origine conservée, Q8 jamais recodée en binaire
+    assert Q1_BIN_COL in c.columns and "Q1" in c.columns
+    assert ((c[Q1_BIN_COL] == 1) == (c["Q1"] == 1)).all()
+    assert set(c["Q8"].dropna().unique()) - {0, 1}  # Q8 garde ses 8 modalités, pas binarisée
 
 
 def test_filtres():

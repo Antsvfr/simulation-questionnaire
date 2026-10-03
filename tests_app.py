@@ -175,3 +175,69 @@ def test_donnees_manquantes_zero_et_non_nul():
     at.button(key="btn_repro").click().run()
     assert sample(at)["params"].taux_manquants == 0.2
     assert not at.exception
+
+
+def test_export_echantillon_complet_respecte_le_mode_actif():
+    # régression trouvée en navigateur : les boutons de téléchargement doivent lire le mode de
+    # l'échantillon actif, pas le mode par défaut — sinon un CSV « sans branchement » affichait
+    # encore des « Non applicable ». Garde statique : tout appel à csv_readable/csv_codes dans
+    # app.py doit passer explicitement le mode (DF, MODE) / (FDF, MODE), jamais (DF) / (FDF) seuls.
+    import re
+    src = open("app.py", encoding="utf-8").read()
+    bad = re.findall(r"ex\.csv_(?:readable|codes)\((?:DF|FDF)\)", src)
+    assert not bad, f"appel(s) sans mode explicite : {bad}"
+
+    at = fresh()
+    at.radio(key="w_mode").set_value("sans_branchement").run()
+    at.button(key="btn_repro").click().run()
+    s = sample(at)
+    assert s["params"].filter_mode == "sans_branchement"
+    import exports as ex
+    csv = ex.csv_readable(s["df"], s["params"].filter_mode).decode("utf-8-sig")
+    assert "Non applicable" not in csv  # plus aucune question exclue dans ce mode (NaN résiduels = manquants)
+
+
+def test_mode_sans_branchement_bascule_et_bandeau():
+    at = fresh()
+    assert sample(at)["params"].filter_mode == "simulation_filtree"
+    at.radio(key="w_mode").set_value("sans_branchement").run()
+    assert "non appliqu" in txt(at).lower()  # changer le mode est un réglage comme un autre
+    at.button(key="btn_repro").click().run()
+    assert sample(at)["params"].filter_mode == "sans_branchement"
+    assert "hypothétiques" in txt(at).lower()
+    for s in SECTIONS:
+        goto(at, s)
+    # 0 question non applicable en mode sans branchement
+    from simulator import status_frame
+    st = status_frame(sample(at)["df"], "sans_branchement")
+    assert (st != "non_applicable").to_numpy().all()
+
+
+def test_deux_modes_jamais_melanges_dans_un_echantillon():
+    at = fresh()
+    at.radio(key="w_mode").set_value("sans_branchement").run()
+    at.button(key="btn_new").click().run()
+    assert sample(at)["params"].filter_mode == "sans_branchement"
+    at.radio(key="w_mode").set_value("simulation_filtree").run()
+    at.button(key="btn_repro").click().run()
+    assert sample(at)["params"].filter_mode == "simulation_filtree"  # l'échantillon actif est remplacé net
+
+
+def test_echantillon_precedent_incompatible_est_signale_et_preserve():
+    import dataclasses
+    from simulator import SimParams, simulate
+
+    old_params = dataclasses.replace(SimParams(), version="ANCIENNE_VERSION_6MOD")
+    old_df = simulate(SimParams())
+    at = AppTest.from_file("app.py", default_timeout=120)
+    at.session_state["sample"] = {"params": old_params, "df": old_df, "readable": old_df,
+                                  "codes": old_df, "sid": 1}
+    at.run()
+    assert not at.exception
+    assert any("incompatible" in e.value.lower() for e in at.error)
+    assert "incompatible_sample" in at.session_state
+    assert at.session_state["incompatible_sample"]["params"].version == "ANCIENNE_VERSION_6MOD"
+    regen = next(b for b in at.button if "8 modalités" in b.label)
+    regen.click().run()
+    assert not at.exception
+    assert sample(at)["params"].version == "IA_ORIGINAL_15Q_8MOD"

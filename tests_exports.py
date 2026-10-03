@@ -6,8 +6,9 @@ import pandas as pd
 
 import exports as ex
 from simulator import SimParams, simulate, status_frame
-from survey_config import ALL_QS, BANNER, QUESTIONS
-from views import (LATENT_COL, MISS_TXT, NA_TXT, Filters, filter_mask, fmt_answer, readable_frame)
+from survey_config import ALL_QS, BANNER, MODE_LIBRE, QUESTIONNAIRE_VERSION, QUESTIONS
+from views import (LATENT_COL, MISS_TXT, NA_TXT, Q1_BIN_COL, Filters, filter_mask, fmt_answer,
+                   readable_frame)
 
 P = SimParams(n=100, seed=42, taux_manquants=0.08)
 D = simulate(P)
@@ -54,6 +55,14 @@ def test_csv_codes_et_correspondance():
     miss_cells = (t[[f"{q}_statut" for q in ALL_QS]] == "manquant").sum().sum()
     assert na_cells > 0 and miss_cells > 0
     assert (r[ALL_QS] == NA_TXT).sum().sum() == na_cells and (r[ALL_QS] == MISS_TXT).sum().sum() == miss_cells
+    assert Q1_BIN_COL in t.columns
+    assert set(t.loc[t[Q1_BIN_COL] != "", Q1_BIN_COL]) <= {"1", "0"}
+
+
+def test_csv_mode_sans_branchement_aucune_na():
+    d_libre = simulate(SimParams(n=100, seed=42, taux_manquants=0.08, filter_mode=MODE_LIBRE))
+    t = rd(ex.csv_codes(d_libre, MODE_LIBRE))
+    assert (t[[f"{q}_statut" for q in ALL_QS]] != "non_applicable").to_numpy().all()
 
 
 def test_export_filtre_et_complet():
@@ -81,6 +90,8 @@ def test_excel_feuilles_et_contenu():
     meth = pd.read_excel(io.BytesIO(b), sheet_name="Paramètres et méthode", header=None, dtype=str)
     flat = " ".join(meth.fillna("").values.ravel())
     assert BANNER in flat and "Graine" in flat and "42" in flat
+    assert QUESTIONNAIRE_VERSION in flat and "Mode de filtrage" in flat
+    assert "Test d'attention" not in flat or "Absent" in flat  # jamais de résultat fictif inventé
     comp = pd.read_excel(io.BytesIO(b), sheet_name="Composition", header=2)
     assert comp["Probabilité paramétrée (%)"].notna().any()
     dic = pd.read_excel(io.BytesIO(b), sheet_name="Dictionnaire", header=None, dtype=str)
@@ -99,6 +110,9 @@ def test_excel_filtre_sans_probabilites_parametrees():
 def test_json_et_nom_de_fichier():
     j = json.loads(ex.json_bytes(D, P, "Ensemble", 100, None))
     assert j["avertissement"] == BANNER and len(j["profils"]) == 100 and j["parametres"]["seed"] == 42
+    assert j["version_questionnaire"] == QUESTIONNAIRE_VERSION
+    assert j["mode_filtrage"] == P.filter_mode
+    assert Q1_BIN_COL in j["profils"][0]
     name = ex.filename("lisibles", "csv", P, "tout", 100)
     assert name.startswith("SIMULATION_SYNTHETIQUE") and "graine42" in name and name.endswith(".csv")
 
