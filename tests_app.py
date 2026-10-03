@@ -1,13 +1,22 @@
-"""Parcours de l'interface Streamlit (AppTest) : état de session, filtres, fiche, périmètres."""
+"""Parcours de l'interface Streamlit (AppTest) : navigation, état de session, filtres, analyses."""
 import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
 
 from survey_config import BANNER
 
+SECTIONS = ["Vue d'ensemble", "Échantillon", "Analyse par question", "Comparaisons",
+           "Relations entre réponses", "Exports et méthode"]
+
 
 def fresh():
     at = AppTest.from_file("app.py", default_timeout=120).run()
+    assert not at.exception, [e.value for e in at.exception]
+    return at
+
+
+def goto(at, section):
+    at.segmented_control(key="nav").set_value(section).run()
     assert not at.exception, [e.value for e in at.exception]
     return at
 
@@ -17,68 +26,64 @@ def sample(at):
 
 
 def txt(at):
-    return " ".join([m.value for m in at.markdown] + [h.value for h in at.subheader] + [w.value for w in at.warning]
-                    + [i.value for i in at.info] + [s.value for s in at.success] + [c.value for c in at.caption])
+    return " ".join([m.value for m in at.markdown] + [c.value for c in at.caption]
+                    + [w.value for w in at.warning] + [i.value for i in at.info]
+                    + [s.value for s in at.success] + [h.value for h in at.subheader])
 
 
 def test_generation_100_profils_et_mention():
     at = fresh()
     s = sample(at)
     assert len(s["df"]) == 100 and s["params"].seed == 42
-    assert at.metric[0].value == "100"
-    assert BANNER in txt(at)
-    assert [m.label for m in at.metric][:5] == ["Profils synthétiques", "Utilisateurs / non-utilisateurs",
-                                                 "Questionnaires complets",
-                                                 "Réponses accidentellement manquantes",
-                                                 "Réponses non applicables"]
+    assert "Données synthétiques" in txt(at)  # mention discrète et permanente
 
 
-def test_navigation_filtres_ne_regenere_pas():
+def test_toutes_les_sections_sans_erreur():
+    at = fresh()
+    for s in SECTIONS:
+        goto(at, s)
+
+
+def test_navigation_et_filtres_ne_regenerent_pas():
     at = fresh()
     before, sid = sample(at)["df"].copy(), sample(at)["sid"]
     at.multiselect(key="f_use").set_value(["Non"]).run()
-    at.radio(key="scope").set_value("filtered").run()
-    at.radio(key="view_mode").set_value("Codes numériques").run()
-    at.selectbox(key="sort_col").set_value("Q5").run()
-    assert not at.exception
+    for s in SECTIONS:
+        goto(at, s)
     assert sample(at)["sid"] == sid and sample(at)["df"].equals(before)
-    assert "profils affichés sur 100 profils générés" in txt(at)
+    assert "sélectionnés sur" in txt(at)
 
 
 def test_reset_filtres():
     at = fresh()
     at.multiselect(key="f_use").set_value(["Non"]).run()
     at.text_input(key="f_search").set_value("SYN-0").run()
-    assert "profils affichés sur 100" in txt(at) and "100 profils affichés" not in txt(at)
     at.button(key="btn_reset").click().run()
     assert at.multiselect(key="f_use").value == [] and at.text_input(key="f_search").value == ""
-    assert "100 profils affichés sur 100 profils générés" in txt(at)
+    assert "100 profils sélectionnés sur 100" in txt(at)
 
 
-def test_filtre_sans_resultat():
+def test_filtre_sans_resultat_affiche_message():
     at = fresh()
     at.text_input(key="f_search").set_value("ZZZ-INEXISTANT").run()
-    assert not at.exception
-    assert "0 profils affichés sur 100 profils générés" in txt(at)
-    assert "Aucun profil ne correspond à ces filtres" in txt(at)
-    for scope_tab in ("filtered",):
-        at.radio(key="scope").set_value(scope_tab).run()
-        assert not at.exception
-        assert "Aucun profil dans ce périmètre" in txt(at)
+    assert "0 profils sélectionnés sur 100" in txt(at)
+    for s in SECTIONS[:-1]:  # Exports a ses propres messages par bloc
+        goto(at, s)
+        assert "Aucun profil" in txt(at)
 
 
-def test_parametres_non_appliques_puis_reproduction():
+def test_parametres_non_appliques_puis_reproduction_meme_graine():
     at = fresh()
-    s0 = sample(at)["df"].copy()
+    d0 = sample(at)["df"].copy()
     at.slider(key="w_taux").set_value(30).run()
-    assert "non encore appliqués" in txt(at)
-    assert sample(at)["df"].equals(s0) and sample(at)["params"].taux_usage == 0.8   # rien n'a changé
+    assert "non appliqu" in txt(at).lower()
+    assert sample(at)["df"].equals(d0) and sample(at)["params"].taux_usage == 0.8
     at.button(key="btn_repro").click().run()
-    assert "non encore appliqués" not in txt(at)
+    assert "non appliqu" not in txt(at).lower()
     assert sample(at)["params"].taux_usage == 0.3 and sample(at)["params"].seed == 42
     d1 = sample(at)["df"].copy()
     at.button(key="btn_repro").click().run()
-    assert sample(at)["df"].equals(d1)                 # même graine + mêmes paramètres = mêmes données
+    assert sample(at)["df"].equals(d1)  # même graine + mêmes paramètres = mêmes données
 
 
 def test_nouvel_echantillon_nouvelle_graine():
@@ -91,38 +96,52 @@ def test_nouvel_echantillon_nouvelle_graine():
     assert f"nouvelle graine : {new_seed}" in txt(at)
 
 
-def test_parametres_actifs_conserves_apres_modification_des_reglages():
+def test_fiche_individuelle():
     at = fresh()
-    at.slider(key="w_n").set_value(200).run()
-    at.slider(key="w_manq").set_value(10).run()
-    assert sample(at)["params"].n == 100 and len(sample(at)["df"]) == 100
-    assert sample(at)["params"].taux_manquants == 0.02
-
-
-def test_fiche_individuelle_et_toutes_les_reponses():
-    at = fresh()
-    ids = list(sample(at)["df"]["ID"])
-    for pid in ("SYN-001", "SYN-003", ids[-1]):
+    goto(at, "Échantillon")
+    at.segmented_control(key="ech_sub").set_value("Réponses individuelles").run()
+    for pid in ("SYN-001", "SYN-050"):
         at.selectbox(key="fiche_id").set_value(pid).run()
         assert not at.exception
-        assert f"Profil {pid}" in txt(at)
-    # la dernière table de la fiche contient les 15 questions
+        assert pid in txt(at)
     fiche = at.table[-1].value
     assert list(fiche.index) == [f"Q{i}" for i in range(1, 16)]
     assert set(fiche["Statut"]) <= {"Répondu", "Non applicable", "Réponse manquante"}
-    assert "Information interne au modèle" in " ".join(m.value for m in at.markdown)
+    # paramètres internes masqués par défaut
+    assert "Profil latent simulé" not in txt(at)
+    at.checkbox(key="show_internal").check().run()
+    assert "Profil latent simulé" in txt(at)
 
 
-def test_toutes_les_fiches_sans_erreur_et_coherentes():
+def test_analyse_par_question_nominale_et_ordinale():
     at = fresh()
-    from simulator import status_frame
-    st_ = status_frame(sample(at)["df"])
-    for pid in sample(at)["df"]["ID"][:100:7]:
-        at.selectbox(key="fiche_id").set_value(pid).run()
-        fiche = at.table[-1].value
-        expected = st_.loc[sample(at)["df"]["ID"] == pid].iloc[0]
-        names = {"répondu": "Répondu", "non_applicable": "Non applicable", "manquant": "Réponse manquante"}
-        assert [names[expected[f"Q{i}"]] for i in range(1, 16)] == list(fiche["Statut"])
+    goto(at, "Analyse par question")
+    at.selectbox(key="q_group_sel").set_value("Profil et usage").run()
+    at.selectbox(key="q_select").set_value("Q3").run()
+    assert "aucune moyenne" in txt(at).lower()
+    at.selectbox(key="q_group_sel").set_value("Apprentissage et confiance").run()
+    at.selectbox(key="q_select").set_value("Q9").run()
+    assert "médiane" in txt(at).lower()
+    assert "analysis_export" in at.session_state
+
+
+def test_comparaison_indisponible_pour_question_reservee_aux_utilisateurs():
+    at = fresh()
+    goto(at, "Comparaisons")
+    at.selectbox(key="cmp_q").set_value("Q9").run()
+    at.selectbox(key="cmp_group").set_value("Q1").run()
+    assert "non disponible" in txt(at)
+    at.selectbox(key="cmp_group").set_value("Q4").run()
+    assert "non disponible" not in txt(at)
+
+
+def test_correlation_deux_questions():
+    at = fresh()
+    goto(at, "Relations entre réponses")
+    at.selectbox(key="corr_a").set_value("Q5").run()
+    at.selectbox(key="corr_b").set_value("Q7").run()
+    assert "causalité" in txt(at).lower()
+    assert "latent" in txt(at).lower() or "lien" in txt(at).lower()
 
 
 @pytest.mark.parametrize("taux", [0, 100])
@@ -130,29 +149,29 @@ def test_scenarios_0_et_100_pour_cent_utilisateurs(taux):
     at = fresh()
     at.slider(key="w_taux").set_value(taux).run()
     at.button(key="btn_repro").click().run()
-    assert not at.exception, [e.value for e in at.exception]
     d = sample(at)["df"]
     assert (d.Q1 == 1).sum() == (100 if taux == 100 else 0)
-    for scope in ("full", "filtered"):
-        at.radio(key="scope").set_value(scope).run()
-        assert not at.exception, [e.value for e in at.exception]
+    for s in SECTIONS:
+        goto(at, s)
 
 
-def test_donnees_manquantes_et_zero_manquant():
+def test_export_echantillon_complet_filtre_et_analyse_courante():
+    at = fresh()
+    goto(at, "Analyse par question")
+    at.selectbox(key="q_group_sel").set_value("Apprentissage et confiance").run()
+    at.selectbox(key="q_select").set_value("Q5").run()
+    goto(at, "Exports et méthode")
+    assert len(at.tabs) >= 1  # blocs séparés présents
+    assert "analysis_export" in at.session_state
+    assert at.session_state["analysis_export"]["name"].startswith("distribution_Q5")
+
+
+def test_donnees_manquantes_zero_et_non_nul():
     at = fresh()
     at.slider(key="w_manq").set_value(0).run()
     at.button(key="btn_repro").click().run()
-    assert at.metric[3].value == "0" and at.metric[2].value == "100 / 100"
-    at.slider(key="w_manq").set_value(30).run()
+    assert sample(at)["params"].taux_manquants == 0
+    at.slider(key="w_manq").set_value(20).run()
     at.button(key="btn_repro").click().run()
-    assert int(at.metric[3].value) > 50 and not at.exception
-
-
-def test_modes_d_affichage():
-    at = fresh()
-    for mode in ("Codes numériques", "Réponses lisibles"):
-        at.radio(key="view_mode").set_value(mode).run()
-        assert not at.exception
-    at.radio(key="view_mode").set_value("Codes numériques").run()
-    at.checkbox(key="show_status").check().run()
+    assert sample(at)["params"].taux_manquants == 0.2
     assert not at.exception

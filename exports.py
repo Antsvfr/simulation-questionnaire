@@ -89,6 +89,18 @@ def filename(kind: str, ext: str, params: SimParams, scope_key: str, n_rows: int
     return f"SIMULATION_SYNTHETIQUE_{kind}_{scope_key}_graine{params.seed}_{n_rows}profils.{ext}"
 
 
+def analysis_csv(table: pd.DataFrame) -> bytes:
+    """Export d'un tableau d'analyse courant (déjà agrégé) : origine en première colonne, BOM UTF-8."""
+    out = table.copy()
+    out.insert(0, ORIGINE, BANNER)
+    return _csv(out)
+
+
+def analysis_filename(name: str, params: SimParams) -> str:
+    slug = "".join(c if c.isalnum() else "_" for c in name.strip().lower()).strip("_")[:60]
+    return f"SIMULATION_SYNTHETIQUE_analyse_{slug}_graine{params.seed}.csv"
+
+
 def excel_bytes(d, params: SimParams, scope: str, n_total: int, filt: Filters | None,
                 params_full_scope: bool) -> bytes:
     cb, flt, st = dictionary()

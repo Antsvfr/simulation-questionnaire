@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from simulator import PROFIL_COL, SimParams, expected_distributions, status_frame
-from survey_config import ALL_QS, BANNER, CATEGORICAL, QUESTIONS, SCALE_QS
+from survey_config import ALL_QS, BANNER, CATEGORICAL, QUESTIONS, SCALE_QS, is_user_only
 
 NA_TXT = "Non applicable"
 MISS_TXT = "Réponse manquante"
@@ -69,6 +69,21 @@ def codes_frame(df: pd.DataFrame, with_status: bool = True) -> pd.DataFrame:
     out = pd.concat([out, _summary_cols(df, st)], axis=1)
     out[LATENT_COL] = df[PROFIL_COL].astype(str)
     return out
+
+
+def overview_text(c: dict) -> str:
+    """Description courte calculée depuis `counts(df)` — aucune conclusion sur de vrais étudiants."""
+    if c["profils"] == 0:
+        return "Aucun profil dans ce périmètre."
+    pct_use = c["utilisateurs"] / c["profils"] * 100
+    pct_complet = c["complets"] / c["profils"] * 100
+    return (f"Sur les {c['profils']} profils synthétiques de cet échantillon, {c['utilisateurs']} "
+            f"({pct_use:.0f} %) déclarent utiliser l'IA et {c['non_utilisateurs']} ({100 - pct_use:.0f} %) "
+            f"n'en déclarent pas l'usage. {c['complets']} profils ({pct_complet:.0f} %) ont un "
+            f"questionnaire complet (aucune réponse manquante parmi les questions qui leur étaient "
+            f"applicables). Au total, {c['manquantes']} réponses sont accidentellement manquantes et "
+            f"{c['non_applicables']} ne s'appliquaient pas au profil concerné. Ces chiffres décrivent "
+            f"uniquement les données simulées affichées ci-dessous, pas des étudiants réels.")
 
 
 def counts(df: pd.DataFrame) -> dict:
@@ -159,6 +174,90 @@ def composition_long(d: pd.DataFrame, scope_label: str, params: SimParams | None
     return pd.DataFrame(rows)
 
 
+# ------------------------------------------------------------------------------------ question par question
+def question_overview(d: pd.DataFrame, q: str) -> dict:
+    """n valides / manquants / non applicables pour une question, sur le périmètre `d`."""
+    st = status_frame(d)[q]
+    return {"valides": int((st == "répondu").sum()), "manquants": int((st == "manquant").sum()),
+            "non_applicables": int((st == "non_applicable").sum()), "total": len(d)}
+
+
+def question_distribution(d: pd.DataFrame, q: str) -> pd.DataFrame:
+    """Effectifs et % (sur réponses valides) pour chaque modalité, dans l'ordre du questionnaire."""
+    spec = QUESTIONS[q]
+    valid = d[q].dropna().astype(int)
+    n = len(valid)
+    if spec["kind"] == "single":
+        modalites = spec["options"]
+        eff = valid.value_counts().reindex(range(1, len(modalites) + 1), fill_value=0)
+    else:
+        modalites = [f"{c}/{spec['levels']}" + (f" · {spec['anchors'][c]}" if c in spec["anchors"] else "")
+                     for c in range(1, spec["levels"] + 1)]
+        eff = valid.value_counts().reindex(range(1, spec["levels"] + 1), fill_value=0)
+    pct = (eff.values / n * 100) if n else np.full(len(modalites), np.nan)
+    return pd.DataFrame({"Code": range(1, len(modalites) + 1), "Modalité": modalites,
+                         "Effectif": eff.values, "% des réponses valides": np.round(pct, 1)})
+
+
+def question_summary_stats(d: pd.DataFrame, q: str) -> dict | None:
+    """Médiane et moyenne (convention de score approximativement métrique) pour une échelle ordonnée."""
+    spec = QUESTIONS[q]
+    if spec["kind"] == "single":
+        return None
+    valid = d[q].dropna()
+    if len(valid) == 0:
+        return None
+    return {"mediane": float(valid.median()), "moyenne": float(valid.mean()),
+            "ecart_type": float(valid.std()) if len(valid) > 1 else float("nan"),
+            "levels": spec["levels"], "n": len(valid)}
+
+
+# ------------------------------------------------------------------------------------ comparaisons par groupe
+def comparison_available(q: str, group_q: str) -> bool:
+    """False lorsque `q` est réservée aux utilisateurs et que le regroupement est Q1 (comparaison
+    utilisateurs/non-utilisateurs non pertinente : les non-utilisateurs n'ont par construction aucune
+    réponse applicable)."""
+    return not (group_q == "Q1" and is_user_only(q))
+
+
+def comparison_table(d: pd.DataFrame, q: str, group_q: str) -> pd.DataFrame:
+    """Une ligne par groupe : n applicable, n valide, n manquant, n non applicable."""
+    st = status_frame(d)
+    opts = QUESTIONS[group_q]["options"]
+    rows = []
+    for i, lab in enumerate(opts, 1):
+        in_grp = d[group_q] == i
+        s = st.loc[in_grp, q]
+        rows.append({group_q: lab, "n du groupe": int(in_grp.sum()),
+                    "Réponses valides": int((s == "répondu").sum()),
+                    "Non applicable": int((s == "non_applicable").sum()),
+                    "Manquant": int((s == "manquant").sum())})
+    return pd.DataFrame(rows)
+
+
+def comparison_distribution(d: pd.DataFrame, q: str, group_q: str) -> pd.DataFrame:
+    """Distribution de `q` (% à l'intérieur de chaque groupe, sur réponses valides du groupe)."""
+    spec = QUESTIONS[q]
+    opts_g = QUESTIONS[group_q]["options"]
+    codes = range(1, (len(spec["options"]) if spec["kind"] == "single" else spec["levels"]) + 1)
+    rows = []
+    for i, lab in enumerate(opts_g, 1):
+        valid = d.loc[d[group_q] == i, q].dropna().astype(int)
+        n = len(valid)
+        eff = valid.value_counts().reindex(codes, fill_value=0)
+        for c in codes:
+            rows.append({group_q: lab, "Code": c, "Effectif": int(eff[c]), "n_groupe": n,
+                        "% du groupe": round(eff[c] / n * 100, 1) if n else np.nan})
+    return pd.DataFrame(rows)
+
+
+SMALL_N_RULE = ("Règle documentée de cette simulation : en dessous de 10 réponses valides dans un "
+                "groupe, l'effectif est signalé comme petit et la distribution n'est pas commentée "
+                "en détail. Ce seuil ne garantit aucune validité statistique au-delà : il signale "
+                "seulement qu'une différence vue sur peu de profils peut facilement s'inverser avec "
+                "un autre tirage.")
+
+
 # ------------------------------------------------------------------------------------ corrélations
 MIN_PAIRS = 10
 
@@ -188,3 +287,18 @@ def safe_spearman(d: pd.DataFrame, qs=SCALE_QS, min_pairs: int = MIN_PAIRS) -> t
     for q in qs:
         corr.loc[q, q] = 1.0 if (d[q].nunique() > 1 and d[q].notna().sum() >= min_pairs) else np.nan
     return corr, npair, notes
+
+
+def spearman_pair(d: pd.DataFrame, qa: str, qb: str, min_pairs: int = MIN_PAIRS) -> dict:
+    """Spearman pour une seule paire, avec le tableau croisé des valeurs discrètes utilisées."""
+    sub = d[[qa, qb]].dropna()
+    n = len(sub)
+    sub_i = sub.astype(int)
+    ct = pd.crosstab(sub_i[qa], sub_i[qb]) if n else pd.DataFrame()
+    if n < min_pairs:
+        return {"rho": None, "n": n, "crosstab": ct, "reason": f"effectif insuffisant (n={n} < {min_pairs})"}
+    if sub_i[qa].nunique() < 2 or sub_i[qb].nunique() < 2:
+        return {"rho": None, "n": n, "crosstab": ct, "reason": "une des deux questions est constante "
+                "sur les paires utilisables"}
+    rho = float(sub_i[qa].rank().corr(sub_i[qb].rank()))
+    return {"rho": rho, "n": n, "crosstab": ct, "reason": None}

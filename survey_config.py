@@ -22,8 +22,9 @@ def _s6(low, high):
 
 
 # asked : "all" (posée à tous) ou "users" (posée si Q1 = Oui)
-# rule  : "minimum" = non-applicabilité exigée par la consigne ; "convention" = choix de la simulation
-#         (None pour les questions posées à tous). Aucun branchement Qualtrics n'a été vérifié.
+# rule  : "definie" = règle de non-applicabilité définie pour cette simulation (pas une exigence du
+#         professeur) ; "convention" = autre choix de la simulation (None pour les questions posées à
+#         tous). Aucun branchement Qualtrics n'a été vérifié.
 QUESTIONS = {
     "Q1": dict(label="Utilisation de l'IA dans les études", kind="single", options=Q1_OPTIONS,
                asked="all"),
@@ -38,16 +39,16 @@ QUESTIONS = {
                anchors=_s6("Très inefficace", "Très efficace"), asked="users", rule="convention"),
     "Q8": dict(label="Confiance dans son propre jugement face à une réponse d'IA",
                kind="scale", levels=6, anchors=_s6("Très peu", "Totalement"),
-               asked="users", rule="minimum"),
+               asked="users", rule="definie"),
     "Q9": dict(label="« L'utilisation de l'IA améliore la qualité de mon travail scolaire. »",
-               kind="agree", levels=5, anchors=AGREE5, asked="users", rule="minimum"),
+               kind="agree", levels=5, anchors=AGREE5, asked="users", rule="definie"),
     "Q10": dict(label="« Les établissements d'enseignement devraient encadrer l'utilisation "
                       "de l'IA. »", kind="agree", levels=5, anchors=AGREE5, asked="all", rule=None),
     "Q11": dict(label="« J'ai tendance à vérifier les informations fournies par une IA avant "
                       "de les utiliser. »", kind="agree", levels=5, anchors=AGREE5,
-                asked="users", rule="minimum"),
+                asked="users", rule="definie"),
     "Q12": dict(label="« L'IA m'aide à devenir plus autonome dans mes études. »",
-                kind="agree", levels=5, anchors=AGREE5, asked="users", rule="minimum"),
+                kind="agree", levels=5, anchors=AGREE5, asked="users", rule="definie"),
     "Q13": dict(label="Impact de l'IA sur la créativité", kind="scale", levels=6,
                 anchors=_s6("Réducteur", "Stimulant"), asked="all", rule=None),
     "Q14": dict(label="Impact de l'IA sur l'esprit critique", kind="scale", levels=6,
@@ -99,6 +100,24 @@ def short(q: str) -> str:
     return f"{q} — {QUESTIONS[q]['label']}"
 
 
+# Regroupement du sélecteur de question (section « Analyse par question »).
+GROUPS = [
+    ("Profil et usage", ["Q1", "Q2", "Q3", "Q4"]),
+    ("Apprentissage et confiance", ["Q5", "Q6", "Q7", "Q8", "Q9"]),
+    ("Encadrement, vérification et autonomie", ["Q10", "Q11", "Q12"]),
+    ("Créativité, esprit critique et personnalisation", ["Q13", "Q14", "Q15"]),
+]
+
+
+def group_of(q: str) -> str:
+    return next(name for name, qs in GROUPS if q in qs)
+
+
+def is_user_only(q: str) -> bool:
+    """True si la question n'est posée qu'aux utilisateurs de l'IA (Q1 = Oui)."""
+    return QUESTIONS[q]["asked"] == "users"
+
+
 def is_applicable(q: str, q1_codes):
     """Série booléenne : la question q est-elle posée au répondant (selon Q1) ?"""
     if QUESTIONS[q]["asked"] == "all":
@@ -121,8 +140,8 @@ def filters_table():
     for q, d in QUESTIONS.items():
         if d["asked"] == "all":
             out.append((q, "Tous les répondants", "—"))
-        elif d["rule"] == "minimum":
-            out.append((q, "Utilisateurs (Q1 = Oui)", "Minimum exigé par la consigne"))
+        elif d["rule"] == "definie":
+            out.append((q, "Utilisateurs (Q1 = Oui)", "Règle définie pour la simulation"))
         else:
             out.append((q, "Utilisateurs (Q1 = Oui)",
                         "Convention de la simulation (non vérifiée dans Qualtrics)"))

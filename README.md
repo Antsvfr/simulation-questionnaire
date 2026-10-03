@@ -20,17 +20,31 @@ streamlit run app.py
 ```
 Tests (facultatif, ~1 min) : `python -m pytest -q`. Python ≥ 3.10 recommandé.
 
+## Navigation
+
+Six sections, sélectionnées par les boutons en haut de page :
+
+| Section | Contenu |
+|---|---|
+| 🏠 Vue d'ensemble | Indicateurs clés (avec aide contextuelle), composition compacte, description calculée, liens rapides |
+| 🧑‍🤝‍🧑 Échantillon | *Composition* (effectifs/% par âge, genre, niveau, usage + proportions théoriques séparées) et *Réponses individuelles* (tableau Q1–Q15, tri, lisible/codes, fiche d'un profil) |
+| ❓ Analyse par question | Une question à la fois (texte complet, n valides/manquants/NA, distribution, tableau exact, aide à la lecture) |
+| 🔀 Comparaisons | Une question × un regroupement (âge/genre/niveau/usage), barres à 100 %, tableau croisé, petits effectifs signalés |
+| 🔗 Relations entre réponses | Corrélation de Spearman entre deux échelles, tableau croisé, explication du signe, liens programmés réels, matrice globale en option |
+| 📦 Exports et méthode | Trois exports séparés (échantillon complet / sélection filtrée / tableau de l'analyse courante) + méthode et limites |
+
+Les **filtres globaux** (recherche, âge, genre, niveau, usage de l'IA, complet/incomplet) sont dans la barre
+latérale, toujours visibles, et s'appliquent à toutes les sections et à tous les exports : « X profils
+sélectionnés sur N » et un bouton « Réinitialiser les filtres » sont toujours affichés.
+
 ## Fonctionnement de l'échantillon
 
 - L'échantillon est conservé dans `st.session_state` avec **les paramètres exacts de sa génération**.
-  Changer d'onglet, filtrer, trier ou télécharger ne le régénère jamais.
-- Modifier les réglages de la barre latérale affiche « paramètres non encore appliqués ».
+  Changer de section, filtrer, trier ou télécharger ne le régénère jamais.
+- Les réglages de génération sont dans le panneau replié **« ⚙️ Configurer la simulation »** (barre latérale).
+  Les modifier affiche « modifications non appliquées » tant qu'aucun bouton n'a été cliqué.
 - **🔁 Reproduire avec cette graine** : régénère avec les réglages et la graine saisis (mêmes paramètres +
   même graine = mêmes données). **🎲 Générer un nouvel échantillon** : tire et affiche une nouvelle graine.
-- Onglets : Échantillon détaillé (indicateurs, tableau Q1–Q15, filtres, tri, lisible/codes) · Fiche individuelle ·
-  Composition (probabilités paramétrées vs proportions observées) · Échelles · Comparaisons · Corrélations · Exports.
-- Un sélecteur de **périmètre** (ensemble / profils filtrés) s'applique aux résumés et graphiques ; le périmètre et
-  le dénominateur sont toujours affichés.
 
 ## Questionnaire
 
@@ -51,9 +65,10 @@ Q9–Q12** (dimensions différentes).
   `manquant`) les distinguent. L'application affiche le *n utilisé* partout et un tableau d'effectifs.
 
 ### Filtres (non-utilisateurs : Q1 = Non)
-- **Minimum exigé par la consigne** — non applicables : **Q8, Q9, Q11, Q12**.
-- **Conventions de la simulation, non vérifiées dans Qualtrics** : Q5 et Q7 aussi réservées aux utilisateurs ;
+- **Règle définie pour cette simulation** (jamais une exigence du professeur) — non applicables : **Q8, Q9, Q11, Q12**.
+- **Autre convention de la simulation, non vérifiée dans Qualtrics** : Q5 et Q7 aussi réservées aux utilisateurs ;
   Q6, Q10, Q13, Q14, Q15 posées à tous. Ces choix sont modifiables dans `survey_config.py` (`asked`/`rule`).
+  Le détail est dans « Exports et méthode » → *Règles de non-applicabilité et définition des données manquantes*.
 
 ## Modèle de simulation (hypothèses, pas des résultats)
 
@@ -68,11 +83,13 @@ Q9–Q12** (dimensions différentes).
 
 ## Exports
 
-Deux blocs séparés : **tout l'échantillon** et **profils filtrés uniquement**. Pour chacun : CSV lisible, CSV
-codes + statuts, Excel (feuilles *Réponses lisibles*, *Codes et statuts*, *Dictionnaire*, *Composition*,
-*Paramètres et méthode*) et JSON. Noms de fichier `SIMULATION_SYNTHETIQUE_…` ; colonne `Origine` dans chaque ligne ;
-en-têtes en première ligne (pas de ligne de commentaire) ; UTF-8 avec BOM (accents corrects dans Excel).
-Dans le CSV « codes », une cellule vide = non applicable **ou** manquant : voir `Qx_statut`.
+Trois blocs séparés dans « 📦 Exports et méthode » : **échantillon complet**, **sélection filtrée**, et **tableau
+de l'analyse courante** (le dernier tableau consulté dans Analyse par question, Comparaisons ou Relations entre
+réponses). Les deux premiers : CSV lisible, CSV codes + statuts, Excel (feuilles *Réponses lisibles*, *Codes et
+statuts*, *Dictionnaire*, *Composition*, *Paramètres et méthode*) et JSON. Noms de fichier
+`SIMULATION_SYNTHETIQUE_…` ; colonne `Origine` dans chaque ligne ; en-têtes en première ligne (pas de ligne de
+commentaire) ; UTF-8 avec BOM (accents corrects dans Excel). Dans le CSV « codes », une cellule vide = non
+applicable **ou** manquant : voir `Qx_statut`.
 
 ## Validité des analyses
 
@@ -84,9 +101,10 @@ Dans le CSV « codes », une cellule vide = non applicable **ou** manquant : voi
 
 ## Fichiers
 
-`survey_config.py` (questionnaire, textes, filtres) · `simulator.py` (génération, statuts) · `views.py` (tableaux, filtres,
-composition, corrélations) · `exports.py` (CSV/Excel/JSON) · `app.py` (interface) · `tests_*.py` (générateur/vues,
-exports relus, parcours Streamlit AppTest).
+`survey_config.py` (questionnaire, textes, groupes, filtres) · `simulator.py` (génération, statuts, liens
+programmés) · `views.py` (tableaux, filtres, composition, question par question, comparaisons, corrélations) ·
+`exports.py` (CSV/Excel/JSON) · `app.py` (interface à six sections) · `tests_*.py` (générateur/vues, exports
+relus, parcours Streamlit AppTest).
 
 ## Relire les exports
 

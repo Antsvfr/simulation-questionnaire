@@ -121,6 +121,55 @@ def simulate(params: SimParams | None = None) -> pd.DataFrame:
     return df
 
 
+# ------------------------------------------------------------------------- liens programmés
+# Décrit, pour chaque question à 5/6 niveaux, comment son signal est construit dans simulate() :
+# coefficient du trait latent L (fonction des paramètres), et dépendances directes à d'autres
+# questions déjà tirées. Sert uniquement à expliquer d'où peuvent venir des corrélations observées.
+def _latent_coef(p: SimParams) -> dict:
+    f = p.force_latent
+    return {"Q5": 0.9 * f, "Q6": 0.5 * f, "Q7": 0.6 * f, "Q8": 0.0, "Q9": 0.8 * f,
+            "Q10": p.lien_q10_latent, "Q11": 0.0, "Q12": 0.7 * f, "Q13": 0.6 * f,
+            "Q14": 0.5 * f, "Q15": 0.6 * f}
+
+
+DIRECT_LINKS = {"Q7": [("Q5", 0.3)], "Q9": [("Q5", 0.3)]}  # dépendance directe à la valeur tirée de Q5
+NIVEAU_LINKS = {"Q8": 0.3}       # dépend du niveau d'études, pas du trait latent
+AGE_LINKS_FN = {"Q10": lambda p: p.lien_q10_age}  # 0 par défaut
+
+
+def programmed_link_note(qa: str, qb: str, params: SimParams) -> str:
+    """Explique, à partir des coefficients réellement utilisés par `params`, pourquoi deux questions
+    pourraient être corrélées (facteur latent commun, dépendance directe) ou non.
+    """
+    lat = _latent_coef(params)
+    la, lb = lat.get(qa, 0.0), lat.get(qb, 0.0)
+    bits = []
+    if abs(la) > 1e-9 and abs(lb) > 1e-9:
+        sens = "dans le même sens" if la * lb > 0 else "en sens opposés"
+        bits.append(f"{qa} et {qb} chargent toutes les deux sur le trait latent « appétence pour "
+                    f"l'IA » de la simulation (coefficients {la:+.2f} et {lb:+.2f}, {sens}) : une partie "
+                    f"d'une éventuelle corrélation vient de ce facteur commun, pas d'un lien entre elles.")
+    for x, y in ((qa, qb), (qb, qa)):
+        for dep, coef in DIRECT_LINKS.get(x, []):
+            if dep == y:
+                bits.append(f"{x} dépend directement de la valeur tirée pour {y} dans la génération "
+                            f"(coefficient {coef:+.2f}).")
+    for q, coef in NIVEAU_LINKS.items():
+        if q in (qa, qb):
+            bits.append(f"{q} dépend du niveau d'études simulé (coefficient {coef:+.2f}), pas du trait "
+                        f"latent ni directement de l'autre question.")
+    for q, fn in AGE_LINKS_FN.items():
+        if q in (qa, qb) and abs(fn(params)) > 1e-9:
+            bits.append(f"{q} dépend aussi de l'âge simulé dans ce réglage (coefficient {fn(params):+.2f}).")
+    if not bits:
+        return (f"Aucun lien programmé n'a été identifié entre {qa} et {qb} dans la configuration "
+                f"actuelle du modèle. Cela ne garantit pas leur indépendance : une corrélation peut "
+                f"apparaître par hasard d'échantillonnage, surtout avec un petit effectif.")
+    bits.append("L'absence d'autres liens programmés ne garantit pas l'indépendance du reste : le "
+                "hasard d'échantillonnage peut aussi produire une corrélation apparente.")
+    return " ".join(bits)
+
+
 def status_frame(df: pd.DataFrame) -> pd.DataFrame:
     """Statut de chaque cellule : répondu / non_applicable / manquant."""
     out = {}
