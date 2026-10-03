@@ -34,7 +34,7 @@ class SimParams:
     n: int = 100
     seed: int = 42
     taux_usage: float = 0.80                 # cible pour Q1 = Oui
-    age_weights: tuple = (0.10, 0.62, 0.20, 0.08)   # normalisés à la génération
+    age_weights: tuple = (0.02, 0.55, 0.30, 0.13)   # normalisés à la génération
     genre_weights: tuple = (0.46, 0.48, 0.03, 0.03)
     taux_manquants: float = 0.02             # non-réponse accidentelle, par cellule applicable (Q2–Q15)
     force_latent: float = 1.0                # multiplie le lien du trait latent avec Q5, Q7, Q9, Q12–Q15
@@ -45,8 +45,15 @@ class SimParams:
     model_version: str = GENERATOR_VERSION   # identifiant de l'algorithme de génération (simulate())
 
 
-NIVEAU_P = {1: (0.95, 0.05, 0, 0), 2: (0.45, 0.35, 0.18, 0.02),
-            3: (0.10, 0.25, 0.45, 0.20), 4: (0.03, 0.12, 0.40, 0.45)}  # P(niveau | âge)
+# P(niveau | âge) — calibré sur une population d'école de commerce : un profil de moins de 18 ans
+# est quasiment toujours en Bac/L1-L2 (une L3 à cet âge est exceptionnelle, un Master/Doctorat
+# impossible dans le système français) ; les profils de 35 ans et plus sont très majoritairement en
+# Master ou Doctorat/Autre (formation continue, executive education), pas en premier cycle.
+# Le genre (Q3), lui, reste tiré indépendamment de l'âge et du niveau : rien ne justifie de lier la
+# répartition hommes/femmes à l'âge ou au niveau d'études dans cette population, et le faire
+# introduirait un stéréotype arbitraire plutôt qu'une amélioration du réalisme.
+NIVEAU_P = {1: (0.98, 0.02, 0.00, 0.00), 2: (0.40, 0.38, 0.20, 0.02),
+            3: (0.06, 0.14, 0.50, 0.30), 4: (0.01, 0.04, 0.35, 0.60)}
 
 
 def _norm(p):

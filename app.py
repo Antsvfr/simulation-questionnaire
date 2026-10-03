@@ -51,8 +51,8 @@ ICONS = {"Vue d'ensemble": "🏠", "Échantillon": "🧑‍🤝‍🧑", "Analys
 
 
 # ============================================================================ état de session
-WIDGET_DEFAULTS = {"w_n": 100, "w_seed": 42, "w_taux": 80, "w_manq": 2, "w_a1": 10, "w_a2": 62,
-                   "w_a3": 20, "w_a4": 8, "w_force": 1.0, "w_l10": 0.0, "w_l10a": 0.0,
+WIDGET_DEFAULTS = {"w_n": 100, "w_seed": 42, "w_taux": 80, "w_manq": 2, "w_a1": 2, "w_a2": 55,
+                   "w_a3": 30, "w_a4": 13, "w_force": 1.0, "w_l10": 0.0, "w_l10a": 0.0,
                    "w_mode": MODE_FILTRE}
 FILTER_DEFAULTS = {"f_search": "", "f_age": [], "f_genre": [], "f_niv": [], "f_use": [],
                    "f_comp": "Tous"}
