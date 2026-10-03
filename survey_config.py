@@ -176,19 +176,31 @@ def codebook():
     return rows
 
 
-def filters_table(mode: str = MODE_FILTRE):
-    """Quelles questions sont exclues pour qui, dans le mode donné — jamais présenté comme un
-    branchement Qualtrics prouvé."""
+def filters_table(mode: str = MODE_FILTRE, df=None):
+    """Quelles questions sont exclues pour qui, dans le mode donné, et pourquoi — jamais présenté
+    comme un branchement Qualtrics prouvé (le texte du questionnaire ne le démontre pas).
+
+    Avec `df` (l'échantillon actif), ajoute le nombre réel de profils concernés par l'exclusion,
+    plutôt qu'une description abstraite.
+    """
+    def n_non_users():
+        if df is None or "Q1" not in df:
+            return None
+        return int((df["Q1"] == 2).sum())
+
     if mode == MODE_LIBRE:
         return [(q, "Tous les répondants", "Mode « sans branchement » : aucune question exclue "
-                "— voir la réserve sur les réponses hypothétiques") for q in QUESTIONS]
+                "— voir la réserve sur les réponses hypothétiques", "—") for q in QUESTIONS]
     out = []
     for q, d in QUESTIONS.items():
         if d["asked"] == "all":
-            out.append((q, "Tous les répondants", "—"))
-        elif d["rule"] == "definie":
-            out.append((q, "Utilisateurs (Q1 = Oui)", "Règle définie pour la simulation"))
+            out.append((q, "Tous les répondants", "—", 0))
         else:
+            n = n_non_users()
+            detail = (f"Convention de simulation : exclut les {n} profil(s) non-utilisateurs de "
+                     f"l'IA (Q1 = Non) de cet échantillon" if n is not None else
+                     "Convention de simulation : exclut les profils non-utilisateurs de l'IA (Q1 = Non)")
             out.append((q, "Utilisateurs (Q1 = Oui)",
-                        "Convention de la simulation (non vérifiée dans Qualtrics)"))
+                        detail + " ; non vérifiée dans Qualtrics (le texte du questionnaire ne "
+                        "prouve aucun branchement réel).", n if n is not None else "—"))
     return out

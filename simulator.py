@@ -23,6 +23,11 @@ STATUTS = ["répondu", "non_applicable", "manquant"]
 # moyenne de la question source (voir le calcul ci-dessous).
 K8 = 7 / 5
 
+# Identifiant du MODÈLE de génération (algorithme de simulate()), distinct de QUESTIONNAIRE_VERSION
+# (qui identifie la structure du questionnaire). Change si la mécanique de tirage change (nouvelles
+# variables latentes, nouvelle formule...), même si le questionnaire modélisé reste identique.
+GENERATOR_VERSION = "GEN_LATENT_K8_V1"
+
 
 @dataclass
 class SimParams:
@@ -37,6 +42,7 @@ class SimParams:
     lien_q10_age: float = 0.0                # DÉSACTIVÉ par défaut
     filter_mode: str = MODE_FILTRE           # "simulation_filtree" ou "sans_branchement"
     version: str = QUESTIONNAIRE_VERSION     # identifiant de la structure du questionnaire modélisée
+    model_version: str = GENERATOR_VERSION   # identifiant de l'algorithme de génération (simulate())
 
 
 NIVEAU_P = {1: (0.95, 0.05, 0, 0), 2: (0.45, 0.35, 0.18, 0.02),
@@ -204,6 +210,30 @@ def status_frame(df: pd.DataFrame, mode: str = MODE_FILTRE) -> pd.DataFrame:
         out[q] = np.where(~applicable, "non_applicable",
                           np.where(df[q].isna(), "manquant", "répondu"))
     return pd.DataFrame(out, index=df.index)
+
+
+def check_reproducible(params: SimParams) -> bool:
+    """Reproduit réellement la génération (mêmes graine + paramètres + versions) et compare, plutôt
+    que de supposer la reproductibilité du générateur."""
+    return simulate(params).equals(simulate(params))
+
+
+def check_full_range(params: SimParams, n_big: int = 20000) -> dict:
+    """Vérifie, sur un tirage indépendant et volontairement grand (n_big), que le générateur AUTORISE
+    bien chaque code 1..levels pour chaque question à échelle — y compris les extrémités (codes 1 et
+    8, ou 1 et 5). N'utilise jamais l'échantillon actif pour cette vérification : l'absence d'un code
+    extrême dans un petit échantillon ne serait pas une preuve que le générateur l'interdit.
+    """
+    from dataclasses import replace
+    big = simulate(replace(params, n=n_big, taux_manquants=0.0, seed=params.seed + 999_983))
+    out = {}
+    for q, spec in QUESTIONS.items():
+        if spec["kind"] == "single":
+            continue
+        present = set(big[q].dropna().astype(int).unique())
+        out[q] = {"attendu": set(range(1, spec["levels"] + 1)), "observe": present,
+                  "complet": present == set(range(1, spec["levels"] + 1))}
+    return out
 
 
 def effectifs(df: pd.DataFrame, mode: str = MODE_FILTRE) -> pd.DataFrame:

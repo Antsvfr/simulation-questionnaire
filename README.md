@@ -91,10 +91,11 @@ paramètres et dans chaque export) :
   modalité « Je ne sais pas » n'est ajoutée (absente du questionnaire original).
 
 ### Filtres (mode « simulation avec filtres », non-utilisateurs : Q1 = Non)
-- **Règle définie pour cette simulation** (jamais une exigence du professeur) — non applicables : **Q8, Q9, Q11, Q12**.
-- **Autre convention de la simulation, non vérifiée dans Qualtrics** : Q5 et Q7 aussi réservées aux utilisateurs ;
-  Q6, Q10, Q13, Q14, Q15 posées à tous. Ces choix sont modifiables dans `survey_config.py` (`asked`/`rule`).
-  Le détail est dans « Exports et méthode » → *Mode de parcours et règles de non-applicabilité*.
+Toutes les exclusions sont des **conventions de simulation** (jamais une exigence du professeur, jamais un
+branchement Qualtrics vérifié) : Q8, Q9, Q11, Q12, Q5 et Q7 sont réservées aux utilisateurs ; Q6, Q10, Q13,
+Q14, Q15 posées à tous. Ces choix sont modifiables dans `survey_config.py` (`asked`/`rule`). Le détail,
+avec le nombre réel de profils concernés par chaque exclusion, est dans le dictionnaire exporté et dans
+« Exports et méthode » → *Mode de parcours et règles de non-applicabilité*.
 
 ## Modèle de simulation (hypothèses, pas des résultats)
 
@@ -111,11 +112,34 @@ paramètres et dans chaque export) :
 
 Trois blocs séparés dans « 📦 Exports et méthode » : **échantillon complet**, **sélection filtrée**, et **tableau
 de l'analyse courante** (le dernier tableau consulté dans Analyse par question, Comparaisons ou Relations entre
-réponses). Les deux premiers : CSV lisible, CSV codes + statuts, Excel (feuilles *Réponses lisibles*, *Codes et
-statuts*, *Dictionnaire*, *Composition*, *Paramètres et méthode*) et JSON. Noms de fichier
-`SIMULATION_SYNTHETIQUE_…` ; colonne `Origine` dans chaque ligne ; en-têtes en première ligne (pas de ligne de
-commentaire) ; UTF-8 avec BOM (accents corrects dans Excel). Dans le CSV « codes », une cellule vide = non
-applicable **ou** manquant : voir `Qx_statut`.
+réponses). Les deux premiers : CSV lisible, CSV codes + statuts, Excel (8 feuilles, voir ci-dessous) et JSON.
+Noms de fichier `SIMULATION_SYNTHETIQUE_…` ; colonne `Origine` dans chaque ligne ; en-têtes en première ligne
+(pas de ligne de commentaire) ; UTF-8 avec BOM (accents corrects dans Excel). Dans le CSV « codes », une cellule
+vide = non applicable **ou** manquant : voir `Qx_statut`. Les paramètres exportés sont toujours ceux qui ont
+**réellement servi à générer l'échantillon actif**, même si les réglages affichés dans l'interface ont été
+modifiés depuis sans être appliqués.
+
+### Les 8 feuilles du classeur Excel
+
+| Feuille | Contenu |
+|---|---|
+| Réponses lisibles | Une ligne par profil, libellés exacts du questionnaire |
+| Codes et statuts | Idem en codes numériques + `Qx_statut` + `Q1_binaire` |
+| Dictionnaire | Codebook complet (question, formulation, code, libellé, type de variable), filtres décrits précisément, légende des statuts, variable dérivée |
+| Composition | Effectifs/% par âge, genre, niveau, usage, avec les probabilités théoriques quand le périmètre est l'échantillon complet |
+| **Paramètres** | Version du questionnaire, version du modèle de génération, graine, taille demandée/générée, mode de filtrage, taux de non-réponse, probabilités et associations réellement utilisées |
+| Méthode et limites | Comment les données sont construites, et ce qu'elles ne permettent pas de conclure |
+| **Contrôle de conformité** | 13 vérifications calculées sur l'échantillon actif (taille, identifiants, bornes des codes, dictionnaire complet, code 6 = libellé « 5 », cohérence valeurs/statuts, effectifs réconciliés, versions, reproductibilité, plage complète des modalités), colorées **Vert/Rouge/Gris** (vraies couleurs de cellule, pas seulement du texte) |
+| **Préparation de la base** | Limites traitées honnêtement, toujours en **gris** : données manquantes avec dénominateurs explicites, absence de test d'attention, non-binarisation de Q8, absence d'indice composite Q9–Q12 |
+
+## Contrôle de conformité
+
+Affiché dans l'application (section Exports et méthode) et dans l'export Excel — les deux sont calculés à
+l'identique sur l'échantillon actif, jamais supposés. Aucun statut n'est forcé au vert : un contrôle non
+vérifiable (ex. présence des codes extrêmes dans le seul échantillon actif, par opposition à leur autorisation
+par le générateur, vérifiée séparément sur un tirage indépendant de 20 000 profils) reste gris. Testé avec de
+vraies anomalies injectées (doublon d'identifiant, code hors bornes, incohérence valeur/statut, taille erronée,
+version incompatible) pour vérifier que chaque contrôle réagit réellement (`tests_compliance.py`).
 
 ## Validité des analyses
 
@@ -126,20 +150,23 @@ applicable **ou** manquant : voir `Qx_statut`.
 - Les réponses absentes ne sont jamais remplies : un questionnaire « complet » n'a aucune réponse accidentellement
   manquante parmi les questions applicables ; les non applicables ne comptent pas comme oubli.
 - Aucun test d'attention, aucun recodage binaire de Q8, aucune variable nominale moyennée ou corrélée comme une
-  échelle ordinale.
+  échelle ordinale. Ce questionnaire sur l'IA n'a aucun lien avec une éventuelle base de satisfaction
+  professionnelle L5.
 
 ## Fichiers
 
 `survey_config.py` (questionnaire, textes, groupes, filtres) · `simulator.py` (génération, statuts, liens
-programmés) · `views.py` (tableaux, filtres, composition, question par question, comparaisons, corrélations) ·
+programmés, vérifications de reproductibilité/plage) · `views.py` (tableaux, filtres, composition, question par
+question, comparaisons, corrélations) · `compliance.py` (contrôle de conformité, préparation de la base) ·
 `exports.py` (CSV/Excel/JSON) · `app.py` (interface à six sections) · `tests_*.py` (générateur/vues, exports
-relus, parcours Streamlit AppTest).
+relus, contrôle de conformité, parcours Streamlit AppTest).
 
 ## Relire les exports
 
 ```python
 pd.read_csv("SIMULATION_SYNTHETIQUE_lisibles_tout_graine42_100profils.csv", encoding="utf-8-sig")
 pd.read_excel("SIMULATION_SYNTHETIQUE_classeur_tout_graine42_100profils.xlsx", sheet_name="Réponses lisibles")
+pd.read_excel("SIMULATION_SYNTHETIQUE_classeur_tout_graine42_100profils.xlsx", sheet_name="Contrôle de conformité", header=2)
 ```
-Dans l'Excel, les feuilles annexes (Dictionnaire, Composition, Paramètres et méthode) ont le bandeau en A1 et leurs
-tableaux à partir de la ligne 3.
+Dans l'Excel, les feuilles annexes ont le bandeau en A1 et leurs tableaux à partir de la ligne 3 (`header=2`
+pour les lire avec pandas).

@@ -9,6 +9,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+import compliance
 import exports as ex
 from simulator import SimParams, effectifs, programmed_link_note, simulate, status_frame
 from survey_config import (AGREE_QS, ALL_QS, BANNER, CATEGORICAL, FILTER_MODE_LABELS, FILTER_MODES,
@@ -183,6 +184,15 @@ def need_rows(d, msg=None) -> bool:
                    "latérale et cliquez sur « Réinitialiser les filtres », ou élargissez votre sélection.")
         return True
     return False
+
+
+_STATUT_CSS = {compliance.VERT: "background-color:#C6EFCE;color:#006100;font-weight:600",
+              compliance.ROUGE: "background-color:#FFC7CE;color:#9C0006;font-weight:600",
+              compliance.GRIS: "background-color:#D9D9D9;color:#404040;font-weight:600"}
+
+
+def style_statut(v):
+    return _STATUT_CSS.get(v, "")
 
 
 def ordinal_bar(d: pd.DataFrame, q: str) -> go.Figure:
@@ -604,7 +614,8 @@ elif nav == "Exports et méthode":
                            ex.filename("lisibles", "csv", params, "tout", N), "text/csv", width="stretch")
         d2.download_button("⬇️ CSV — codes et statuts", ex.csv_codes(DF, MODE),
                            ex.filename("codes_statuts", "csv", params, "tout", N), "text/csv", width="stretch")
-        d3.download_button("⬇️ Excel (5 feuilles)", ex.excel_bytes(DF, params, f"Ensemble ({N})", N, None, True),
+        d3.download_button("⬇️ Excel (8 feuilles)",
+                           ex.excel_bytes(DF, params, f"Ensemble ({N})", N, None, True, df_full=DF),
                            ex.filename("classeur", "xlsx", params, "tout", N),
                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
         st.download_button("⬇️ JSON", ex.json_bytes(DF, params, f"Ensemble ({N})", N, None),
@@ -620,8 +631,9 @@ elif nav == "Exports et méthode":
                                ex.filename("lisibles", "csv", params, "filtre", NF), "text/csv", width="stretch")
             d2.download_button("⬇️ CSV — codes et statuts", ex.csv_codes(FDF, MODE),
                                ex.filename("codes_statuts", "csv", params, "filtre", NF), "text/csv", width="stretch")
-            d3.download_button("⬇️ Excel (5 feuilles)",
-                               ex.excel_bytes(FDF, params, f"Filtré ({NF} sur {N})", N, FILT, False),
+            d3.download_button("⬇️ Excel (8 feuilles)",
+                               ex.excel_bytes(FDF, params, f"Filtré ({NF} sur {N})", N, FILT, False,
+                                              df_full=DF),
                                ex.filename("classeur", "xlsx", params, "filtre", NF),
                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
             st.download_button("⬇️ JSON", ex.json_bytes(FDF, params, f"Filtré ({NF} sur {N})", N, FILT),
@@ -665,10 +677,10 @@ elif nav == "Exports et méthode":
         else:
             st.markdown(
                 "- Le texte du questionnaire fourni ne prouve aucun branchement Qualtrics réel : les "
-                "exclusions ci-dessous sont des choix explicites de ce mode, pas un fait démontré.\n"
-                "- **Non applicable** : question non posée à ce profil par une règle définie pour cette "
-                "simulation (jamais une exigence du professeur, jamais un oubli).")
-        st.dataframe(pd.DataFrame(filters_table(MODE), columns=["Question", "Posée à", "Nature de la règle"]),
+                "exclusions ci-dessous sont des **conventions de simulation**, pas un fait démontré.\n"
+                "- **Non applicable** : question non posée à ce profil par une convention de simulation "
+                "(jamais une exigence du professeur, jamais un oubli).")
+        st.dataframe(pd.DataFrame(filters_table(MODE, DF), columns=["Question", "Posée à", "Nature de la règle", "Profils concernés"]),
                     hide_index=True, width="stretch")
         st.markdown(
             "- **Manquant** : question applicable restée sans réponse — non-réponse accidentelle simulée "
@@ -695,6 +707,24 @@ elif nav == "Exports et méthode":
             "paramètres de génération ne sont pas réglés pour obtenir une conclusion, une corrélation "
             "précise ou un résultat significatif prédéterminés.\n"
             "- Aucun test de significativité n'est calculé par défaut dans les comparaisons de groupes.")
+
+    st.divider()
+    st.markdown("### ✅ Contrôle de conformité")
+    st.caption("Calculé à l'instant sur l'échantillon actif complet (pas sur un résultat supposé) ; "
+              "identique à la feuille « Contrôle de conformité » de l'export Excel. Aucun statut n'est "
+              "forcé au vert : Gris = non applicable ou non vérifiable, pas un échec.")
+    ctrl = compliance.control_table(DF, params)
+    n_red = (ctrl["Statut"] == compliance.ROUGE).sum()
+    (st.error if n_red else st.success)(
+        f"{(ctrl['Statut'] == compliance.VERT).sum()} contrôle(s) réussi(s), {n_red} anomalie(s), "
+        f"{(ctrl['Statut'] == compliance.GRIS).sum()} information(s).")
+    st.dataframe(ctrl.style.map(style_statut, subset=["Statut"]), hide_index=True, width="stretch")
+
+    st.markdown("### 🧹 Préparation de la base — limites traitées honnêtement")
+    st.caption("Ces éléments sont volontairement **gris** : ce ne sont pas des contrôles réussis ou "
+              "échoués, mais des choix de portée du questionnaire.")
+    st.dataframe(compliance.prep_base_table(DF, params).style.map(style_statut, subset=["Statut"]),
+                hide_index=True, width="stretch")
 
 st.divider()
 st.caption(f"🔒 {MINI_BANNER} · Aucune connexion à Qualtrics.")
