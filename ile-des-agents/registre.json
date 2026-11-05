@@ -1,0 +1,97 @@
+{
+  "ile": "Île des Agents",
+  "version": 1,
+  "batiments": [
+    {
+      "id": "mairie", "nom": "Mairie", "type": "mairie", "pos": [0, 0], "couleur": "#c4553a",
+      "agent": "Session principale (CLAUDE.md)",
+      "role": "Le Maire reçoit chaque demande, la fait passer au Conseil, la confie à la bonne maison, puis demande à la Forge de vérifier avant de te répondre.",
+      "dossier": ".",
+      "environnement": ["CLAUDE.md : la constitution de l'île", "registre.json : le cadastre", "journal-de-l-ile.md : l'histoire de l'île"],
+      "commande": "claude"
+    },
+    {
+      "id": "conseil", "nom": "Conseil des Critiques", "type": "conseil", "pos": [-6, -5], "couleur": "#6b4fa0",
+      "agent": ".claude/agents/critique-*.md (×3)",
+      "role": "Trois tours, trois critiques qui relisent chaque prompt en parallèle. Le Maire fusionne leurs avis en un prompt amélioré.",
+      "dossier": "conseil",
+      "environnement": ["Tour de la Clarté : ambiguïtés, reformulation", "Tour de l'Exigence : barre de qualité, pièges", "Tour Stratège : objectif réel, priorités", "proces-verbaux/ : chaque avis rendu"],
+      "commande": "/conseil <ton prompt>"
+    },
+    {
+      "id": "forge", "nom": "La Forge", "type": "forge", "pos": [7, -6], "couleur": "#3d3a36",
+      "agent": ".claude/agents/forgeron.md",
+      "role": "Vérifie et répare tout ce qui sort des maisons : structure, fichiers manquants, code qui casse, chiffres sans source. Inspecte aussi l'île automatiquement à la fin de chaque tâche.",
+      "dossier": "forge",
+      "environnement": ["inspection.sh : contrôle de toute l'île", "rapports/ : un rapport par inspection", "Hook de fin de tâche : réparation automatique"],
+      "commande": "/inspection"
+    },
+    {
+      "id": "cuvee-campus", "nom": "Cave Cuvée Campus", "type": "maison", "pos": [-8, 4], "couleur": "#7d2e46",
+      "agent": ".claude/agents/chef-cuvee-campus.md",
+      "role": "Projet sociétal environnemental de l'équipe 53 : livrables, recherches sourcées, suivi d'équipe.",
+      "dossier": "maisons/cuvee-campus",
+      "environnement": ["livrables/", "recherches/", "equipe.md", "journal.md"],
+      "commande": "Utilise chef-cuvee-campus pour …"
+    },
+    {
+      "id": "bde-emergency", "nom": "QG EM'ERGENCY", "type": "maison", "pos": [-2, 8], "couleur": "#d6402b",
+      "agent": ".claude/agents/chef-bde-emergency.md",
+      "role": "Campagne BDE BBA : programme chiffré, entraînement à l'entretien de candidature, communication de la liste.",
+      "dossier": "maisons/bde-emergency",
+      "environnement": ["programme/", "entretien/", "com/", "journal.md"],
+      "commande": "Utilise chef-bde-emergency pour …"
+    },
+    {
+      "id": "vetotri", "nom": "Labo Vétotri", "type": "maison", "pos": [5, 7], "couleur": "#2f8f83",
+      "agent": ".claude/agents/chef-vetotri.md",
+      "role": "Ton chatbot : code, prompts système versionnés, tests, recherche d'un nouveau nom.",
+      "dossier": "maisons/vetotri",
+      "environnement": ["src/", "prompts/", "tests/", "noms.md", "journal.md"],
+      "commande": "Utilise chef-vetotri pour …"
+    },
+    {
+      "id": "ecole", "nom": "École", "type": "maison", "pos": [9, 1], "couleur": "#2e5c9e",
+      "agent": ".claude/agents/chef-ecole.md",
+      "role": "Cours emlyon : présentation d'anglais sur Lester Piggott, « Analyser et comprendre le marché », fiches de révision.",
+      "dossier": "maisons/ecole",
+      "environnement": ["anglais/", "marche/", "fiches/", "journal.md"],
+      "commande": "Utilise chef-ecole pour …"
+    },
+    {
+      "id": "bibliotheque", "nom": "Bibliothèque", "type": "chantier", "pos": [-2, -11], "couleur": "#a0703c",
+      "agent": "à construire", "dossier": "",
+      "role": "Mémoire de l'île : résumés de cours, sources, notes de lecture, tout ce que les maisons ont appris. Les chefs viennent y chercher avant de refaire une recherche.",
+      "environnement": ["index.md", "sources/", "resumes/"],
+      "commande": "/nouvelle-maison Bibliothèque"
+    },
+    {
+      "id": "phare", "nom": "Phare", "type": "chantier", "pos": [10, -10], "couleur": "#e0b23a",
+      "agent": "à construire", "dossier": "",
+      "role": "Veille et alertes : échéances de toutes les maisons, rappels planifiés, brief du matin sur ce qui arrive cette semaine.",
+      "environnement": ["echeances.md", "tâches planifiées"],
+      "commande": "/nouvelle-maison Phare"
+    },
+    {
+      "id": "port", "nom": "Port", "type": "chantier", "pos": [-13, 1], "couleur": "#4a7fa8",
+      "agent": "à construire", "dossier": "",
+      "role": "Ce qui part de l'île : mails, posts, messages d'équipe. Rien n'est envoyé sans ton feu vert.",
+      "environnement": ["brouillons/", "envoyes.md"],
+      "commande": "/nouvelle-maison Port"
+    },
+    {
+      "id": "observatoire", "nom": "Observatoire", "type": "chantier", "pos": [12, 6], "couleur": "#5a4a8a",
+      "agent": "à construire", "dossier": "",
+      "role": "Données et tableaux de bord : avancement de chaque maison, stats d'utilisation de Vétotri, budget de la liste BDE.",
+      "environnement": ["donnees/", "dashboards/"],
+      "commande": "/nouvelle-maison Observatoire"
+    },
+    {
+      "id": "academie", "nom": "Académie", "type": "chantier", "pos": [-10, -8], "couleur": "#3f8a4e",
+      "agent": "à construire", "dossier": "",
+      "role": "Entraînement : quiz, flashcards, simulations d'oral et d'entretien, à partir de ce que contiennent les autres maisons.",
+      "environnement": ["quiz/", "simulations/"],
+      "commande": "/nouvelle-maison Académie"
+    }
+  ]
+}
