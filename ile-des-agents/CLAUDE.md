@@ -38,4 +38,10 @@ Questions rapides (une définition, une info) : réponds directement, sans circu
 - `/conseil <prompt>` — faire passer un prompt devant le Conseil, sans exécuter.
 - `/nouvelle-maison <nom>` — construire une branche (dossier, agent, registre, bâtiment 3D).
 - `/inspection` — la Forge inspecte toute l'île et répare.
-- Voir l'île : `cd village && python3 -m http.server 8000` puis ouvrir http://localhost:8000 (depuis la racine : `python3 -m http.server` puis `/village/`).
+- Voir l'île : `python3 serveur.py` (sert la racine et ouvre `/village/`).
+
+## Activité en direct
+
+`etat-de-l-ile.json` dit ce que fait l'île (maison, sujet, étape conseil / maison / forge / terminé, heure). Il est écrit automatiquement par les hooks `SubagentStart`, `SubagentStop` et `Stop` (`.claude/hooks/etat-ile.py`) ; le village le relit toutes les 3 s.
+- Au début du circuit, donne le sujet : `python3 .claude/hooks/etat-ile.py sujet "<sujet court>"` (les hooks ne le connaissent pas).
+- Tester sans vrais agents : `python3 .claude/hooks/etat-ile.py simuler <id-maison>`.

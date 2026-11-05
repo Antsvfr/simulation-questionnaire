@@ -63,6 +63,10 @@ ul.env li{font-family:var(--mono);font-size:12.5px;padding:6px 9px;border:1px so
 .cmd{display:flex;gap:8px;align-items:center}
 .cmd code{flex:1;padding:8px 10px}
 .cmd button{border:1.5px solid var(--ink);background:var(--ink);color:var(--paper);border-radius:6px;padding:7px 10px;font:600 12px var(--body);cursor:pointer}
+.live{align-self:flex-start;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--ink);color:var(--paper)}
+ul.jr{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:5px}
+ul.jr li{font-size:13px;line-height:1.4;padding:6px 9px;border-left:3px solid var(--rule);background:#fff8ec}
+.chain .now{background:var(--ink);color:var(--paper);width:100%;font-weight:500}
 .tag{align-self:flex-start;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;border:1.5px dashed var(--accent);color:var(--accent)}
 .nav{display:flex;gap:8px;padding:12px 20px;border-top:1.5px dashed var(--rule)}
 .nav button{flex:1;border:1.5px solid var(--ink);background:var(--chip);color:var(--ink);border-radius:8px;padding:8px;font:600 13px var(--body);cursor:pointer}
@@ -88,6 +92,7 @@ ul.env li{font-family:var(--mono);font-size:12.5px;padding:6px 9px;border:1px so
 
 <div class="chain" aria-label="Circuit d'une demande">
   <small>Circuit d'une demande — suis les messagers</small>
+  <span class="now" id="now" hidden></span>
   <span>Mairie</span><b>→</b><span>Conseil ×3</span><b>→</b><span>Maison</span><b>→</b><span>Forge</span><b>→</b><span>Mairie</span>
 </div>
 
@@ -175,9 +180,18 @@ function maison(g, c){
   mesh(new THREE.BoxGeometry(2.6,2,2.6), "#f3e6cf", 0,1,0, g);
   const roof = mesh(new THREE.ConeGeometry(2.35,1.7,4), c, 0,2.85,0, g); roof.rotation.y = Math.PI/4;
   mesh(new THREE.BoxGeometry(.7,1.1,.1), "#4a3424", 0,.55,1.31, g);
-  mesh(new THREE.BoxGeometry(.6,.55,.1), "#ffd98a", .85,1.25,1.31, g);
-  mesh(new THREE.BoxGeometry(.6,.55,.1), "#ffd98a", -.85,1.25,1.31, g);
+  const vitre = new THREE.MeshStandardMaterial({color:"#ffd98a",emissive:"#ffb347",emissiveIntensity:0,flatShading:true});
+  mesh(new THREE.BoxGeometry(.6,.55,.1), vitre, .85,1.25,1.31, g);
+  mesh(new THREE.BoxGeometry(.6,.55,.1), vitre, -.85,1.25,1.31, g);
   mesh(new THREE.BoxGeometry(.35,1,.35), c, .8,3,-.6, g);
+  // fumée de cheminée : visible seulement quand la maison travaille (etat-de-l-ile.json)
+  const puffs = [];
+  for(let i=0;i<5;i++){
+    const s = new THREE.Mesh(new THREE.IcosahedronGeometry(.22,0), new THREE.MeshStandardMaterial({color:"#e8e0d4",transparent:true,opacity:0,flatShading:true}));
+    s.userData.t = i/5; s.visible = false; g.add(s); puffs.push(s);
+  }
+  const lampe = new THREE.PointLight("#ffb347", 0, 6); lampe.position.set(0,1.3,2); g.add(lampe);
+  g.userData.house = {vitre, puffs, lampe};
 }
 function mairie(g, c){
   mesh(new THREE.BoxGeometry(5,2.6,3.6), "#f6ead6", 0,1.3,0, g);
@@ -281,6 +295,56 @@ for(let i=0;i<Math.max(3,maisons.length);i++){
 }
 function route(m){ return [P("mairie"), P("conseil"), P(m.userData.house), P("forge"), P("mairie")]; }
 
+// ---- Activité réelle : etat-de-l-ile.json (écrit par les hooks) ----
+// ETAT = null tant que le fichier est absent ou illisible -> comportement d'origine (messagers au hasard).
+let ETAT = null;
+const LEG = {conseil:0, maison:1, forge:2, "terminé":3};
+const ETAPES = {conseil:"Conseil", maison:"Maison", forge:"Forge", "terminé":"Terminé"};
+const vrai = new THREE.Group();
+{ mesh(new THREE.CylinderGeometry(.22,.32,.72,8), "#2a2117", 0,.36,0, vrai);
+  mesh(new THREE.SphereGeometry(.24,8,6), "#e8b98a", 0,.95,0, vrai);
+  vrai.userData = {scroll: mesh(new THREE.BoxGeometry(.32,.32,.32), new THREE.MeshStandardMaterial({color:"#e0b23a",emissive:"#e0b23a",emissiveIntensity:.6}), 0,1.5,0, vrai), leg:-1, t:0};
+  vrai.visible = false; scene.add(vrai); }
+function maisonActive(){
+  if(!ETAT) return null;
+  return (ETAT.etape === "maison" || ETAT.etape === "forge") ? ETAT.maison : null;  // allumée aussi pendant la Forge
+}
+async function lireEtat(){
+  try{
+    const r = await fetch("../etat-de-l-ile.json", {cache:"no-store"});
+    if(!r.ok) throw 0;
+    const e = await r.json();
+    if(!e || typeof e !== "object" || !(e.etape in LEG)) throw 0;
+    const avant = ETAT && JSON.stringify([ETAT.etape, ETAT.maison]);
+    ETAT = e;
+    if(avant !== JSON.stringify([e.etape, e.maison])){ vrai.userData.leg = -1; }
+  }catch(_){ ETAT = null; }
+  majBandeau(); majBadge();
+  rafraichirJournal();
+}
+function majBadge(){
+  const el = document.getElementById("live"); if(!el) return;
+  const b = B[current];
+  const auTravail = ETAT && ETAT.etape !== "terminé" &&
+    (ETAT.etape === b.type || (b.id === ETAT.maison && (ETAT.etape === "maison" || ETAT.etape === "forge")));
+  el.hidden = !auTravail;
+  if(auTravail) el.textContent = `● Au travail · étape ${ETAPES[ETAT.etape]}`;
+}
+function majBandeau(){
+  const el = document.getElementById("now");
+  if(!ETAT){ el.hidden = true; return; }
+  const m = B.find(b => b.id === ETAT.maison);
+  const h = ETAT.maj ? " · " + new Date(ETAT.maj).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"medium"}) : "";
+  const quoi = `${m ? " · " + m.nom : ""}${ETAT.sujet ? " — " + ETAT.sujet : ""}`;
+  el.textContent = ETAT.etape === "terminé"
+    ? (m || ETAT.sujet ? `Dernière demande terminée${quoi}${h}` : `Île au repos${h}`)
+    : `En cours : ${ETAPES[ETAT.etape]}${quoi}${h}`;
+  el.hidden = false;
+}
+function routeReelle(){
+  return [P("mairie"), P("conseil"), ETAT && ETAT.maison ? P(ETAT.maison) : P("conseil"), P("forge"), P("mairie")];
+}
+
 // Étiquettes HTML
 const labelsEl = document.getElementById("labels");
 const labels = B.map(b => {
@@ -308,14 +372,31 @@ function ouvrir(id){
     <div class="f"><span>Agent</span><code>${esc(b.agent)}</code></div>
     ${b.dossier ? `<div class="f"><span>Dossier</span><code>${esc(b.dossier === "." ? "/ (racine)" : b.dossier + "/")}</code></div>` : ""}
     <div class="f"><span>${b.type==="chantier" ? "Environnement prévu" : "Environnement"}</span><ul class="env">${(b.environnement||[]).map(e=>`<li>${esc(e)}</li>`).join("")}</ul></div>
+    <span class="live" id="live" hidden></span>
+    ${b.type==="maison" ? `<div class="f" id="jr" data-id="${esc(b.id)}" hidden><span>Journal · 5 dernières entrées</span><ul class="jr"></ul></div>` : ""}
     <div class="f"><span>Dans Claude Code</span><div class="cmd"><code id="cmdTxt">${esc(b.commande)}</code><button id="copy">Copier</button></div></div>`;
   document.getElementById("copy").onclick = async (e) => {
     try{ await navigator.clipboard.writeText(b.commande); e.target.textContent = "Copié"; }
     catch{ const r=document.createRange(); r.selectNodeContents(document.getElementById("cmdTxt")); const s=getSelection(); s.removeAllRanges(); s.addRange(r); e.target.textContent="Sélectionné"; }
   };
+  dernierJournal = ""; rafraichirJournal(); majBadge();
   panel.classList.remove("closed"); openBtn.hidden = true;
   focusTarget.copy(groups[b.id].position); focusTarget.y = 1.5; focusing = 1;
   controls.autoRotate = false;
+}
+// Carnet : 5 dernières entrées du journal.md de la maison ouverte
+let dernierJournal = "";
+async function rafraichirJournal(){
+  const box = document.getElementById("jr"); if(!box) return;
+  const b = B.find(x => x.id === box.dataset.id); if(!b || !b.dossier) return;
+  try{
+    const r = await fetch(`../${b.dossier}/journal.md`, {cache:"no-store"}); if(!r.ok) throw 0;
+    const txt = await r.text(); if(txt === dernierJournal && !box.hidden) return; dernierJournal = txt;
+    const lignes = txt.split("\n").map(l => l.trim()).filter(l => /^[-*] /.test(l)).map(l => l.slice(2)).slice(-5).reverse();
+    if(document.getElementById("jr") !== box) return;
+    box.querySelector("ul").innerHTML = lignes.length ? lignes.map(l => `<li>${esc(l)}</li>`).join("") : "<li>Journal vide.</li>";
+    box.hidden = false;
+  }catch(_){ box.hidden = true; }
 }
 document.getElementById("close").onclick = () => { panel.classList.add("closed"); openBtn.hidden = false; };
 openBtn.onclick = () => ouvrir(B[current].id);
@@ -349,8 +430,37 @@ function frame(){
   const f = groups.forge?.userData.glow; if(f) f.intensity = 1.2 + Math.sin(t*9)*.25 + Math.sin(t*23)*.15;
   const orb = groups.conseil?.userData.orb; if(orb){ orb.rotation.y += dt; orb.position.y = 2.2 + Math.sin(t*1.5)*.25; }
   const flag = groups.mairie?.userData.flag; if(flag) flag.rotation.y = Math.sin(t*2.2)*.35;
-  // messagers
+  // maisons : fenêtres et fumée selon l'activité réelle
+  const active = maisonActive();
+  maisons.forEach(b => {
+    const h = groups[b.id]?.userData.house; if(!h) return;
+    const on = b.id === active;
+    h.vitre.emissiveIntensity += ((on ? 1.4 + Math.sin(t*3)*.15 : 0) - h.vitre.emissiveIntensity) * .1;
+    h.lampe.intensity = h.vitre.emissiveIntensity * .9;
+    h.puffs.forEach(s => {
+      s.userData.t = (s.userData.t + dt*.3) % 1; const k = s.userData.t;
+      s.position.set(.8 + Math.sin(k*6+t)*.15, 3.6 + k*2.6, -.6); s.scale.setScalar(.6 + k*1.5);
+      s.material.opacity = on ? .75*(1-k) : Math.max(0, s.material.opacity - dt);
+      s.visible = s.material.opacity > .01;
+    });
+  });
+  // messager réel : parcourt l'étape en cours puis attend à destination
+  if(ETAT){
+    const u = vrai.userData, r = routeReelle(), leg = LEG[ETAT.etape];
+    const auRepos = ETAT.etape === "terminé" && !ETAT.maison;
+    vrai.visible = !auRepos || u.leg !== -1 && u.t < 1;
+    if(u.leg !== leg){ u.leg = leg; u.t = 0; }
+    u.t = Math.min(1, u.t + dt*.35);
+    const a = r[leg], b = r[leg+1];
+    tmp.lerpVectors(a, b, u.t);
+    tmp.y = GROUND + (u.t < 1 ? Math.abs(Math.sin(u.t*Math.PI*10))*.12 : Math.abs(Math.sin(t*3))*.08);
+    vrai.position.copy(tmp); if(u.t < 1) vrai.lookAt(b.x, vrai.position.y, b.z);
+    u.scroll.material.color.set(stageColors[leg]); u.scroll.material.emissive.set(stageColors[leg]); u.scroll.rotation.y += dt*3;
+    if(auRepos && u.t >= 1) vrai.visible = false;
+  } else vrai.visible = false;
+  // messagers d'ambiance : seulement quand l'état réel est inconnu
   messengers.forEach(m => {
+    if(ETAT){ m.visible = false; return; }
     const r = route(m), u = m.userData; u.t += dt*u.speed;
     if(u.t >= 1){ u.t = 0; u.leg = (u.leg+1) % (r.length-1); if(u.leg===0) u.house = maisons[Math.floor(rnd()*maisons.length)]?.id; }
     const a = r[u.leg], b = r[u.leg+1];
@@ -372,6 +482,7 @@ function frame(){
   requestAnimationFrame(frame);
 }
 ouvrir("mairie");
+lireEtat(); setInterval(lireEtat, 3000);
 if(innerWidth < 720){ panel.classList.add("closed"); openBtn.hidden = false; }
 frame();
 });
