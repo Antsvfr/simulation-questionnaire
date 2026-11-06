@@ -45,3 +45,10 @@ Questions rapides (une définition, une info) : réponds directement, sans circu
 `etat-de-l-ile.json` dit ce que fait l'île (maison, sujet, étape conseil / maison / forge / terminé, heure). Il est écrit automatiquement par les hooks `SubagentStart`, `SubagentStop` et `Stop` (`.claude/hooks/etat-ile.py`) ; le village le relit toutes les 3 s.
 - Au début du circuit, donne le sujet : `python3 .claude/hooks/etat-ile.py sujet "<sujet court>"` (les hooks ne le connaissent pas).
 - Tester sans vrais agents : `python3 .claude/hooks/etat-ile.py simuler <id-maison>`.
+
+## Maisons-projets (grosses maisons)
+
+Trois projets d'Anton ont leur grande maison : **LexNote**, **REV-EM**, **UPSA Sales Pilot** (`maisons/<id>/`). Chacune a un `branches.md` (branches réelles, SHA, ordre de fusion), un `etat-des-lieux.md` (vérifié / non vérifié) et le dossier de reprise du projet. Les règles de chaque projet sont dans son `CLAUDE.md` et priment sur les habitudes de l'île.
+- Aucun agent ne modifie un projet extérieur à l'île, ne touche à `main`, ne fusionne, ne pousse ni ne déploie sans l'accord explicite d'Anton dans le chat.
+- Le code de ces projets n'est pas dans l'île : REV-EM et LexNote sont sur GitHub (copies de lecture dans `/home/user/antsvfr/`), UPSA est seulement sur le Mac d'Anton.
+- Quand deux sources se contredisent, on consigne l'écart et on le fait vérifier ; on ne tranche pas.
