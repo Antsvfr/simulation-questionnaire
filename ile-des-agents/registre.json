@@ -460,5 +460,87 @@
       ],
       "commande": "(étape 6 de la roadmap)"
     }
+  ],
+  "organisation": [
+    {
+      "id": "direction-generale",
+      "nom": "Direction générale",
+      "batiment": "mairie",
+      "mission": "Reçoit les instructions du président, classe les propositions des directeurs, planifie, rend compte.",
+      "agents": [
+        "(session principale : le Maire)"
+      ],
+      "statut": "actif"
+    },
+    {
+      "id": "strategie-analyse",
+      "nom": "Stratégie et analyse",
+      "batiment": "conseil",
+      "mission": "Critique et sélection des propositions : clarté, exigence, stratégie ; analyses chiffrées.",
+      "agents": [
+        "critique-clarte",
+        "critique-exigence",
+        "critique-strategie"
+      ],
+      "prevus": [
+        "analyste"
+      ],
+      "statut": "actif"
+    },
+    {
+      "id": "qualite-securite",
+      "nom": "Qualité et sécurité",
+      "batiment": "forge",
+      "mission": "Vérifie et répare ce qui sort des équipes ; le garde bloque techniquement les opérations interdites ou sensibles.",
+      "agents": [
+        "forgeron"
+      ],
+      "prevus": [
+        "testeur-qa",
+        "responsable-securite"
+      ],
+      "statut": "actif"
+    },
+    {
+      "id": "technique",
+      "nom": "Direction technique et développement",
+      "batiment": "observatoire",
+      "mission": "Architecture, développement sur branches de travail isolées, design UX/UI.",
+      "agents": [],
+      "prevus": [
+        "architecte-logiciel",
+        "developpeur",
+        "designer-ux"
+      ],
+      "statut": "prévu — étape 3"
+    },
+    {
+      "id": "innovation",
+      "nom": "Innovation & Business",
+      "batiment": "innovation",
+      "mission": "Opportunités commerciales, études de marché et de concurrence, business models, projets potentiellement rentables. Ne dépense rien, ne contacte personne, ne crée rien sans décision du président.",
+      "agents": [],
+      "prevus": [
+        "veilleur",
+        "analyste-business"
+      ],
+      "statut": "prévu — étape 6"
+    },
+    {
+      "id": "sieges",
+      "nom": "Équipes par projet",
+      "batiment": null,
+      "mission": "Un directeur par projet : revues régulières (/revue), problèmes vérifiés, missions proposées au DG.",
+      "agents": [
+        "chef-rev-em",
+        "chef-lexnote",
+        "chef-upsa-sales-pilot",
+        "chef-bde-emergency",
+        "chef-cuvee-campus",
+        "chef-vetotri",
+        "chef-ecole"
+      ],
+      "statut": "actif"
+    }
   ]
 }

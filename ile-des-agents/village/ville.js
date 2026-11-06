@@ -803,9 +803,10 @@ controls.addEventListener("start", () => { tw = null; controls.autoRotate = fals
 const nav = document.getElementById("hud");
 DISTRICTS.forEach(d => { const b = document.createElement("button"); b.textContent = d.nom; b.dataset.d = d.id; b.onclick = () => goDistrict(d.id); nav.appendChild(b); });
 document.getElementById("tour").onclick = () => tourTimer ? stopTour() : startTour();
+{ const r = document.createElement("a"); r.href = "/residence"; r.textContent = "Résidence ↗"; r.className = "res-lien"; r.title = "Ouvrir la Résidence présidentielle (touche R)"; nav.prepend(r); }
 document.querySelectorAll("[data-time]").forEach(b => b.onclick = () => setTime(b.dataset.time));
 document.getElementById("qsel").onchange = e => { qualAuto = e.target.value === "auto"; setQuality(qualAuto ? "moyen" : e.target.value); };
-addEventListener("keydown", e => { if(e.key === "Escape") goDistrict("aerien"); else if(/^[1-9]$/.test(e.key)) goDistrict(DISTRICTS[+e.key-1].id); });
+addEventListener("keydown", e => { if(/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || "")) return; if(e.key === "r" || e.key === "R"){ location.href = "/residence"; return; } if(e.key === "Escape") goDistrict("aerien"); else if(/^[1-9]$/.test(e.key)) goDistrict(DISTRICTS[+e.key-1].id); });
 
 // clic dans la scène
 const ray = new T.Raycaster(), ptr = new T.Vector2(); let down = null;

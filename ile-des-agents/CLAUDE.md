@@ -38,7 +38,7 @@ Questions rapides (une définition, une info) : réponds directement, sans circu
 - `/conseil <prompt>` — faire passer un prompt devant le Conseil, sans exécuter.
 - `/nouvelle-maison <nom>` — construire une branche (dossier, agent, registre, bâtiment 3D).
 - `/inspection` — la Forge inspecte toute l'île et répare.
-- Voir l'île : `python3 serveur.py` (sert la racine et ouvre `/village/`). Options d'URL : `?heure=jour|crepuscule|nuit`, `?qualite=bas|moyen|haut`, `?vue=<quartier>`, `?ouvrir=<id>`.
+- Ouvrir l'île : `./ile` (ou double-clic sur « Ouvrir l'île.command ») → http://localhost:7777/ ; Résidence : `/residence` ; un bâtiment : `/batiment/<id>`. `./ile aide` pour le reste (installer, distant, president, arret-urgence, statut). Options de la métropole : `?heure=jour|crepuscule|nuit`, `?qualite=bas|moyen|haut`, `?vue=<quartier>`, `?ouvrir=<id>`.
 
 ## Registre des opérations et Résidence (étapes 0 et 1)
 
@@ -48,7 +48,7 @@ Tout ce que fait l'entreprise est inscrit dans **`operations/journal.jsonl`** : 
 - **Agents identifiés :** les hooks `SubagentStart` / `SubagentStop` ouvrent et ferment une exécution (`R-…`) avec l'`agent_id`, la session et la trace Claude Code. Un agent n'apparaît actif (Résidence, métropole) que pendant une exécution réelle.
 - **Instructions du président :** données depuis la Résidence, présentées au DG au début de chaque session (hook `SessionStart`). Le DG les traite puis l'inscrit : `ile.py instruction traiter <id> --reponse "…" [--mission M-…]`. Aucune n'est exécutée automatiquement avant l'étape 3.
 - **Autonomie des directeurs :** `/revue <siège|toutes>` — chaque directeur analyse son projet en lecture seule et inscrit avancement, problèmes vérifiés et au plus 3 missions notées ; le DG classe (`ile.py classer`, formule publique, score et motif enregistrés). Les missions sensibles passent par `attente_president`.
-- **Seul le président** tranche une décision, fixe la priorité d'un siège ou valide une mission sensible (Résidence protégée par jeton, ou `--auteur president` en local).
+- **Seul le président** tranche une décision, fixe une priorité, donne une instruction, retient/rejette/reporte une mission ou accorde une opération sensible. Ses actes sont **signés** de sa clé (dérivée de sa phrase, jamais stockée) ; un acte « présidentiel » non signé est ignoré et signalé. `--auteur president` n'existe plus.
 - **Résidence :** `python3 serveur.py`, puis `/village/residence.html` (ou clic sur la Résidence dans la métropole).
 - **Preuves :** `python3 operations/preuves.py` rejoue chaque critère des étapes 0 et 1 (PASS / FAIL / NOT TESTED) sur une copie du journal.
 - `etat-de-l-ile.json` (ancien format, une seule mission) reste écrit pour compatibilité ; la métropole lit d'abord l'état v2 du registre.
@@ -66,3 +66,10 @@ L'île est une métropole insulaire : trois terrains reliés par deux ponts (îl
 - **Un siège par projet**, d'architecture propre (REV-EM tour torsadée, LexNote en V, UPSA hexagonale, EM'ERGENCY penchée, Cuvée Campus ronde, Vétotri à dôme, École avec tour d'horloge). La Mairie est le cerveau central ; le Conseil et la Forge sont les centres de contrôle ; les chantiers du registre sont de vrais chantiers (échafaudage, grue).
 - **L'activité reste réelle** : `etat-de-l-ile.json` allume le siège concerné (façade, faisceau, fumée) et envoie le courrier sur la vraie route Mairie → Conseil → siège → Forge. Fichier absent : comportement d'ambiance.
 - Performance : instancing (routes, arbres, lampadaires, voitures, conteneurs), LOD sur les tours de décor, construction progressive, qualité adaptative (bas / moyen / haut).
+
+## Garde-fous (étape 2)
+
+- **Le garde** (`operations/garde.py`, hook `PreToolUse`) s'exécute avant chaque action de chaque agent, toi compris. Il autorise le travail courant, **interdit** ce qui usurpe le président ou réécrit le journal, et **bloque en attente d'approbation** les opérations sensibles : push sur une branche protégée, push forcé, fusion, déploiement, migration, suppression large, lecture de secrets, envoi réseau, modification des garde-fous, écriture hors du dépôt.
+- **Quand le garde bloque une opération sensible**, il inscrit une demande `A-…` dans la Résidence. Ne cherche pas à contourner : poursuis le reste du travail, puis réessaie **exactement la même opération** après l'accord signé du président (valable une fois). Pour préparer une demande à l'avance : `python3 operations/ile.py approbation demander --categorie … --raison "…" --commande "…"`.
+- **Arrêt d'urgence** : si `operations/STOP` existe, plus aucun agent ne peut agir (lecture exceptée). Seul le président le lève (`./ile arret-urgence off`).
+- Détail, matrice des protections et limites : `architecture/ETAPES-2.md`.

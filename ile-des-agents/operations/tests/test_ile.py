@@ -10,8 +10,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import ile  # noqa: E402
+import president  # noqa: E402
 
-PRES = {"role": "president", "verifie": "jeton"}
+president.ITERATIONS = 2000   # dérivation rapide pour les tests (la valeur réelle est inscrite dans chaque identité)
+PHRASE = "phrase de test suffisamment longue"
 MAIRE = {"role": "maire", "verifie": "declare"}
 
 
@@ -30,6 +32,7 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         isoler(Path(self.tmp.name))
+        self.cle = ile.creer_identite(PHRASE)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -47,7 +50,7 @@ class Chaine(Base):
             ile.ajouter("test", {"i": i}, MAIRE)
         r = ile.verifier()
         self.assertTrue(r["ok"], r["erreurs"])
-        self.assertEqual(r["n"], 5)
+        self.assertEqual(r["n"], 6)   # identité présidentielle + 5
 
     def _lignes(self):
         return ile.JOURNAL.read_text(encoding="utf-8").splitlines()
@@ -72,7 +75,7 @@ class Chaine(Base):
         for i in range(3):
             ile.ajouter("test", {"i": i}, MAIRE)
         avant = ile.verifier()["dernier"]
-        evs = ile.lire(); evs[0]["donnees"]["i"] = 42; prec = ile.GENESE
+        evs = ile.lire(); evs[1]["donnees"]["i"] = 42; prec = ile.GENESE
         for e in evs:
             e["prec"] = prec; e["hash"] = ile.empreinte(e); prec = e["hash"]
         ile.JOURNAL.write_text("".join(json.dumps(e, ensure_ascii=False, sort_keys=True) + "\n" for e in evs), encoding="utf-8")
@@ -84,7 +87,7 @@ class Chaine(Base):
         ps = [mp.Process(target=_ecrivain, args=(self.tmp.name, k)) for k in range(4)]
         [p.start() for p in ps]; [p.join() for p in ps]
         r = ile.verifier()
-        self.assertTrue(r["ok"], r["erreurs"]); self.assertEqual(r["n"], 100)
+        self.assertTrue(r["ok"], r["erreurs"]); self.assertEqual(r["n"], 101)
 
     def test_artefact_modifie_detecte(self):
         f = ile.RACINE / "operations" / "tests" / ".artefact-test.md"
@@ -118,7 +121,7 @@ class Missions(Base):
         ile.changer_statut(m, "attente_president", MAIRE)
         with self.assertRaises(ile.ErreurIle):
             ile.changer_statut(m, "planifiee", MAIRE)
-        ile.changer_statut(m, "planifiee", PRES)
+        ile.changer_statut(m, "planifiee", {}, cle=self.cle)
         self.assertEqual(ile.etat()["missions"][m]["statut"], "planifiee")
 
     def test_siege_inconnu_refuse(self):
@@ -129,7 +132,7 @@ class Missions(Base):
         a = self.proposer(titre="faible", valeur=2, urgence=2, effort=5, risque=4)
         b = self.proposer(titre="forte", valeur=5, urgence=4, effort=2, risque=1)
         c = self.proposer(siege="lexnote", titre="forte mais siège P3", valeur=5, urgence=4, effort=2, risque=1)
-        ile.fixer_priorite("lexnote", "P3", PRES)
+        ile.fixer_priorite("lexnote", "P3", self.cle)
         ile.classer(MAIRE)
         ms = ile.etat()["missions"]
         self.assertEqual(ms[b]["rang"], 1)
@@ -144,7 +147,7 @@ class Missions(Base):
 
 class Gouvernance(Base):
     def test_instruction_lue_puis_traitee(self):
-        i = ile.donner_instruction("Priorité à LexNote", PRES)["id"]
+        i = ile.donner_instruction("Priorité à LexNote", self.cle)["id"]
         self.assertEqual(ile.etat()["instructions"][i]["statut"], "recue")
         txt = ile.briefing_dg("session-test")
         self.assertIn("Priorité à LexNote", txt)
@@ -157,10 +160,10 @@ class Gouvernance(Base):
         d = ile.demander_decision("lexnote", "Autoriser l'écriture", "OK ?", MAIRE)["id"]
         with self.assertRaises(ile.ErreurIle):
             ile.trancher(d, "approuvee", MAIRE)
-        ile.trancher(d, "approuvee", PRES, "go")
+        ile.trancher(d, "approuvee", self.cle, "go")
         self.assertEqual(ile.etat()["decisions"][d]["verdict"], "approuvee")
         with self.assertRaises(ile.ErreurIle):
-            ile.trancher(d, "refusee", PRES)
+            ile.trancher(d, "refusee", self.cle)
 
 
 class Agents(Base):

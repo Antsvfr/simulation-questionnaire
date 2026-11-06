@@ -28,6 +28,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import president  # noqa: E402
+
 RACINE = Path(__file__).resolve().parent.parent                      # ile-des-agents/
 OPS = Path(os.environ.get("ILE_OPS") or (RACINE / "operations"))      # surchargeable pour les tests
 JOURNAL = OPS / "journal.jsonl"
@@ -39,7 +42,8 @@ RUN_ACTIF_MAX_S = 2 * 3600          # au-delà, une exécution sans fin est « e
 
 # ---------------------------------------------------------------- vocabulaire
 STATUTS = {
-    "proposee":          {"planifiee", "attente_president", "rejetee"},
+    "proposee":          {"planifiee", "attente_president", "rejetee", "reportee"},
+    "reportee":          {"proposee", "rejetee"},
     "attente_president": {"planifiee", "rejetee"},
     "planifiee":         {"en_cours", "abandonnee"},
     "en_cours":          {"verification", "bloquee", "abandonnee"},
@@ -49,10 +53,16 @@ STATUTS = {
 }
 FINAUX = {"terminee", "rejetee", "abandonnee"}
 ACTIFS = {"planifiee", "en_cours", "bloquee", "verification"}
-RESERVE_PRESIDENT = {("attente_president", "planifiee"), ("attente_president", "rejetee")}
+RESERVE_PRESIDENT = {("attente_president", "planifiee"), ("attente_president", "rejetee"), ("proposee", "rejetee"),
+                     ("proposee", "reportee"), ("reportee", "proposee"), ("reportee", "rejetee")}
+# Actes que SEUL le président peut accomplir : ils ne comptent que s'ils portent une signature valide de sa clé.
+TYPES_PRESIDENTIELS = {"president.identite", "decision.tranchee", "siege.priorite", "instruction.donnee",
+                       "approbation.accordee", "approbation.refusee"}
+RESULTATS_TEST = ("PASS", "FAIL", "NOT TESTED", "PARTIEL")
+DUREE_APPROBATION_H = 24
 GRAVITES = ("bloquant", "majeur", "mineur")
 PRIORITES = {"P1": 1.0, "P2": .65, "P3": .35}
-VERIF = ("jeton", "hook", "run", "declare")   # du plus fort au plus faible
+VERIF = ("signature", "hook", "run", "declare")   # du plus fort au plus faible
 
 
 class ErreurIle(Exception):
@@ -70,6 +80,23 @@ def _canon(ev: dict) -> str:
 
 def empreinte(ev: dict) -> str:
     return hashlib.sha256(_canon(ev).encode("utf-8")).hexdigest()
+
+
+def _message_signe(ev: dict) -> bytes:
+    """Ce que le président signe : l'événement complet, chaînage compris, sans l'empreinte ni la signature."""
+    return json.dumps({k: v for k, v in ev.items() if k not in ("hash", "signature")}, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+_SIG_OK: dict = {}   # cache (empreinte d'événement, clé) -> bool, en mémoire seulement
+
+
+def signature_valide(ev: dict, publique: str | None) -> bool:
+    if not publique or not ev.get("signature"):
+        return False
+    k = (ev.get("hash"), publique, ev.get("signature"))
+    if k not in _SIG_OK:
+        _SIG_OK[k] = president.verifier(publique, _message_signe(ev), ev["signature"])
+    return _SIG_OK[k]
 
 
 class _Verrou:
@@ -102,7 +129,7 @@ def lire() -> list[dict]:
     return out
 
 
-def ajouter(type_: str, donnees: dict, auteur: dict, completer=None) -> dict:
+def ajouter(type_: str, donnees: dict, auteur: dict, completer=None, cle=None) -> dict:
     """Ajoute un événement chaîné (sous verrou) puis recalcule les projections.
     `completer(evs)` (facultatif) renvoie les champs à calculer SOUS le verrou (identifiants R-…, M-…) :
     deux écrivains parallèles ne peuvent alors pas obtenir le même numéro."""
@@ -112,7 +139,11 @@ def ajouter(type_: str, donnees: dict, auteur: dict, completer=None) -> dict:
             donnees = {**donnees, **completer(evs)}
         prec = evs[-1]["hash"] if evs else GENESE
         n = len(evs) + 1
+        if cle is not None:
+            auteur = {"role": "president", "verifie": "signature", "cle": cle.empreinte, **{k: v for k, v in auteur.items() if k == "canal"}}
         ev = {"n": n, "id": f"E-{n:06d}", "quand": maintenant(), "type": type_, "auteur": auteur, "donnees": donnees, "prec": prec}
+        if cle is not None:
+            ev["signature"] = cle.signer(_message_signe(ev))
         ev["hash"] = empreinte(ev)
         with open(JOURNAL, "a", encoding="utf-8") as f:
             f.write(json.dumps(ev, ensure_ascii=False, sort_keys=True) + "\n")
@@ -130,7 +161,7 @@ def verifier(evs: list[dict] | None = None) -> dict:
         evs = lire() if evs is None else evs
     except ErreurIle as e:
         return {"ok": False, "n": 0, "erreurs": [str(e)]}
-    prec = GENESE
+    prec, ident = GENESE, None
     for i, ev in enumerate(evs, 1):
         if ev.get("n") != i:
             erreurs.append(f"{ev.get('id')} : numéro {ev.get('n')} au lieu de {i} (ligne insérée ou supprimée)")
@@ -139,11 +170,38 @@ def verifier(evs: list[dict] | None = None) -> dict:
         if empreinte(ev) != ev.get("hash"):
             erreurs.append(f"{ev.get('id')} : contenu modifié après écriture")
         prec = ev.get("hash")
+        motif = _rejet_presidentiel(ev, ident)
+        if motif:
+            erreurs.append(f"{ev.get('id')} : acte présidentiel invalide ({motif})")
+        elif ev.get("type") == "president.identite":
+            ident = ev["donnees"]["cle_publique"]
         if ev.get("type") == "artefact.depose":
             p = RACINE / ev["donnees"].get("chemin", "")
             if p.exists() and _sha_fichier(p) != ev["donnees"].get("sha256"):
                 erreurs.append(f"{ev['id']} : l'artefact {ev['donnees']['chemin']} a changé depuis son dépôt")
     return {"ok": not erreurs, "n": len(evs), "erreurs": erreurs, "dernier": evs[-1]["hash"] if evs else GENESE}
+
+
+def _rejet_presidentiel(ev: dict, publique: str | None) -> str | None:
+    """None si l'événement est acceptable ; sinon la raison du rejet. Seuls les actes présidentiels sont concernés."""
+    t, role = ev.get("type"), ev.get("auteur", {}).get("role")
+    if t != "president.identite" and role != "president" and t not in TYPES_PRESIDENTIELS and not (t == "mission.statut" and (ev["donnees"].get("de"), ev["donnees"].get("vers")) in RESERVE_PRESIDENT):
+        return None
+    if t == "president.identite":
+        d = ev["donnees"]
+        nouvelle = d.get("cle_publique")
+        if not nouvelle or not president.verifier(nouvelle, ("possession:" + nouvelle).encode(), d.get("preuve", "")):
+            return "preuve de possession de la nouvelle clé absente ou fausse"
+        if publique is None:
+            return None if signature_valide(ev, nouvelle) else "identité initiale non signée par sa propre clé"
+        return None if signature_valide(ev, publique) else "changement d'identité non signé par la clé présidentielle en vigueur"
+    if publique is None:
+        return "aucune identité présidentielle n'existait à ce moment"
+    if role != "president":
+        return "acte réservé au président, inscrit par un autre auteur"
+    if not signature_valide(ev, publique):
+        return "signature présidentielle absente ou falsifiée"
+    return None
 
 
 def _sha_fichier(p: Path) -> str:
@@ -180,14 +238,24 @@ def _age_s(quand: str) -> float:
 
 def projeter(evs: list[dict]) -> dict:
     missions, instructions, decisions, problemes, runs, artefacts = {}, {}, {}, {}, {}, []
-    sieges = {}
+    sieges, approbations, tests, refus, rejets = {}, {}, [], [], []
+    identite, identites = None, []
 
     def S(sid):
         return sieges.setdefault(sid, {"id": sid, "priorite": None, "priorite_motif": None, "etat": None, "derniere_activite": None})
 
     for ev in evs:
         t, d, q = ev["type"], ev["donnees"], ev["quand"]
+        motif = _rejet_presidentiel(ev, identite["cle_publique"] if identite else None)
+        if motif:
+            rejets.append({"id": ev["id"], "type": t, "quand": q, "auteur": ev.get("auteur"), "motif": motif})
+            continue
         sid = d.get("siege")
+        if t == "president.identite":
+            identite = {k: d[k] for k in ("cle_publique", "empreinte", "sel", "kdf", "algo") if k in d}
+            identite.update(quand=q, evenement=ev["id"], canal=d.get("canal"))
+            identites.append(identite)
+            continue
         if sid:
             S(sid)["derniere_activite"] = q
         if t == "instruction.donnee":
@@ -220,8 +288,26 @@ def projeter(evs: list[dict]) -> dict:
         elif t == "decision.demandee":
             decisions[ev["id"]] = {"id": ev["id"], "siege": sid, "titre": d["titre"], "question": d.get("question"), "contexte": d.get("contexte"), "source": d.get("source"),
                                    "mission": d.get("mission"), "quand": q, "auteur": ev["auteur"], "verdict": None}
-        elif t == "decision.tranchee" and d["decision"] in decisions:
-            decisions[d["decision"]].update(verdict=d["verdict"], motif=d.get("motif"), tranchee=q, par=ev["auteur"])
+        elif t == "decision.tranchee" and d["decision"] in decisions and decisions[d["decision"]]["verdict"] is None:
+            decisions[d["decision"]].update(verdict=d["verdict"], motif=d.get("motif"), tranchee=q, par=ev["auteur"], evenement=ev["id"])
+        elif t == "approbation.demandee":
+            approbations[d["approbation"]] = {"id": d["approbation"], "evenement": ev["id"], "quand": q, "auteur": ev["auteur"], "statut": "en_attente",
+                                             **{k: d.get(k) for k in ("categorie", "regle", "raison", "outil", "commande", "empreinte", "cwd", "agent", "siege", "mode")},
+                                             "verdict": None, "utilisations": []}
+        elif t in ("approbation.accordee", "approbation.refusee") and d["approbation"] in approbations:
+            a = approbations[d["approbation"]]
+            if a["statut"] == "en_attente":
+                a.update(statut="accordee" if t.endswith("accordee") else "refusee", verdict={"quand": q, "motif": d.get("motif"), "expire": d.get("expire"), "evenement": ev["id"], "par": ev["auteur"]})
+        elif t == "approbation.utilisee" and d["approbation"] in approbations:
+            a = approbations[d["approbation"]]
+            if a["statut"] == "accordee":
+                a["utilisations"].append({"quand": q, "agent": d.get("agent"), "evenement": ev["id"]})
+                if a.get("mode") != "fenetre":
+                    a["statut"] = "utilisee"
+        elif t == "test.execute":
+            tests.append({"id": ev["id"], "quand": q, "auteur": ev["auteur"], **{k: d.get(k) for k in ("siege", "mission", "intitule", "commande", "resultat", "resume", "details", "execute_le", "preuve")}})
+        elif t == "garde.refus":
+            refus.append({"id": ev["id"], "quand": q, **{k: d.get(k) for k in ("categorie", "regle", "raison", "outil", "extrait", "agent", "approbation")}})
         elif t == "siege.etat":
             S(sid)["etat"] = {"phase": d.get("phase"), "resume": d.get("resume"), "indicateurs": d.get("indicateurs", []), "source": d.get("source"), "quand": q, "par": ev["auteur"].get("role")}
         elif t == "siege.priorite":
@@ -236,11 +322,25 @@ def projeter(evs: list[dict]) -> dict:
             if d.get("mission") in missions:
                 missions[d["mission"]]["artefacts"].append(d["chemin"])
 
+    for a in approbations.values():
+        if a["statut"] == "accordee" and a["verdict"].get("expire") and _age_s(a["verdict"]["expire"]) > 0:
+            a["statut"] = "expiree"
+    rapports = []
+    for r in runs.values():
+        if not (r["role"] or "").startswith("chef-"):
+            continue
+        evr = [e for e in evs if e["auteur"].get("run") == r["run"]]
+        rapports.append({"run": r["run"], "role": r["role"], "siege": r["siege"], "debut": r["debut"], "fin": r["fin"], "resultat": r["resultat"],
+                         "etat": next((e["donnees"] for e in reversed(evr) if e["type"] == "siege.etat"), None),
+                         "problemes": [e["id"] for e in evr if e["type"] == "probleme.signale"],
+                         "missions": [e["donnees"]["mission"] for e in evr if e["type"] == "mission.proposee"],
+                         "decisions": [e["id"] for e in evr if e["type"] == "decision.demandee"]})
     actifs = [r for r in runs.values() if r["fin"] is None and _age_s(r["debut"]) < RUN_ACTIF_MAX_S]
     expires = [r for r in runs.values() if r["fin"] is None and _age_s(r["debut"]) >= RUN_ACTIF_MAX_S]
     return {"version": 2, "maj": maintenant(), "evenements": len(evs), "dernier_hash": evs[-1]["hash"] if evs else GENESE,
             "sieges": sieges, "missions": missions, "instructions": instructions, "decisions": decisions, "problemes": problemes,
-            "runs": runs, "runs_actifs": actifs, "runs_expires": expires, "artefacts": artefacts}
+            "runs": runs, "runs_actifs": actifs, "runs_expires": expires, "artefacts": artefacts,
+            "identite": identite, "identites": identites, "approbations": approbations, "tests": tests, "refus": refus, "rejets": rejets, "rapports": rapports}
 
 
 def etat_3d(p: dict) -> dict:
@@ -250,7 +350,8 @@ def etat_3d(p: dict) -> dict:
     alertes = [{"siege": x["siege"], "titre": x["titre"], "gravite": x["gravite"]} for x in p["problemes"].values() if x["ouvert"] and x["gravite"] == "bloquant"]
     return {"version": 2, "maj": p["maj"], "mode": "reel", "evenements": p["evenements"], "runs_actifs": actifs,
             "sieges_actifs": sorted({a["siege"] for a in actifs if a["siege"]}), "missions_actives": missions, "alertes": alertes,
-            "decisions_en_attente": sum(1 for x in p["decisions"].values() if x["verdict"] is None),
+            "decisions_en_attente": sum(1 for x in p["decisions"].values() if x["verdict"] is None) + sum(1 for x in p["approbations"].values() if x["statut"] == "en_attente"),
+            "approbations_en_attente": sum(1 for x in p["approbations"].values() if x["statut"] == "en_attente"),
             "instructions_non_traitees": sum(1 for x in p["instructions"].values() if x["statut"] != "traitee")}
 
 
@@ -276,7 +377,7 @@ def _auteur(role: str, verifie: str = "declare", **extra) -> dict:
 def auteur_cli(role: str, run: str | None = None) -> dict:
     """Identité déclarée en ligne de commande, confirmée si elle correspond à une exécution ouverte."""
     if role == "president":
-        return _auteur("president", "declare", canal="ligne de commande locale")
+        raise ErreurIle("« --auteur president » n'existe plus : les actes du président sont signés (Résidence déverrouillée, ou « ile.py president … » dans un vrai terminal)")
     if run:
         r = etat()["runs"].get(run)
         if r and r["fin"] is None and r["role"] == role:
@@ -319,18 +420,25 @@ def proposer_mission(siege, titre, objectif, criteres, auteur, valeur=None, urge
                                         "origine": origine or auteur.get("role")}, auteur, completer=numero)
 
 
-def changer_statut(mission, vers, auteur, motif=None):
+def _cle_requise(cle):
+    if not isinstance(cle, president.ClePresident):
+        raise ErreurIle("acte présidentiel : la clé du président (déverrouillée) est requise")
+
+
+def changer_statut(mission, vers, auteur, motif=None, cle=None):
     m = etat()["missions"].get(mission)
     if not m:
         raise ErreurIle(f"mission inconnue : {mission}")
     de = m["statut"]
     if vers not in STATUTS.get(de, set()):
         raise ErreurIle(f"transition interdite : {de} → {vers} (permises : {', '.join(sorted(STATUTS[de])) or 'aucune'})")
-    if (de, vers) in RESERVE_PRESIDENT and auteur.get("role") != "president":
-        raise ErreurIle("seul le président peut trancher une mission en attente de son accord")
+    if (de, vers) in RESERVE_PRESIDENT and cle is None:
+        raise ErreurIle("seul le président (signature) peut retenir, rejeter, reporter ou trancher cette mission")
     if de == "proposee" and vers == "planifiee" and m["sensible"]:
         raise ErreurIle("mission sensible : elle doit passer par « attente_president »")
-    return ajouter("mission.statut", {"mission": mission, "siege": m["siege"], "de": de, "vers": vers, "motif": motif}, auteur)
+    if cle is not None:
+        _cle_requise(cle)
+    return ajouter("mission.statut", {"mission": mission, "siege": m["siege"], "de": de, "vers": vers, "motif": motif}, auteur or {}, cle=cle)
 
 
 def score_mission(m: dict, priorite: str | None) -> tuple[float, dict, str]:
@@ -381,23 +489,23 @@ def demander_decision(siege, titre, question, auteur, contexte=None, source=None
     return ajouter("decision.demandee", {"siege": siege, "titre": titre, "question": question, "contexte": contexte, "source": source, "mission": mission}, auteur)
 
 
-def trancher(did, verdict, auteur, motif=None):
-    if auteur.get("role") != "president":
-        raise ErreurIle("seul le président tranche une décision")
+def trancher(did, verdict, cle, motif=None, canal=None):
+    _cle_requise(cle)
     x = etat()["decisions"].get(did)
     if not x or x["verdict"] is not None:
         raise ErreurIle(f"décision inconnue ou déjà tranchée : {did}")
     if verdict not in ("approuvee", "refusee", "reportee"):
         raise ErreurIle("verdict : approuvee, refusee ou reportee")
-    return ajouter("decision.tranchee", {"decision": did, "siege": x["siege"], "verdict": verdict, "motif": motif}, auteur)
+    return ajouter("decision.tranchee", {"decision": did, "siege": x["siege"], "verdict": verdict, "motif": motif}, {"canal": canal} if canal else {}, cle=cle)
 
 
-def donner_instruction(texte, auteur, siege=None):
+def donner_instruction(texte, cle, siege=None, canal=None):
+    _cle_requise(cle)
     texte = (texte or "").strip()
     if not texte or len(texte) > 4000:
         raise ErreurIle("instruction vide ou trop longue (4000 caractères au plus)")
     _siege_valide(siege, obligatoire=False)
-    return ajouter("instruction.donnee", {"texte": texte, "siege": siege}, auteur)
+    return ajouter("instruction.donnee", {"texte": texte, "siege": siege}, {"canal": canal} if canal else {}, cle=cle)
 
 
 def traiter_instruction(iid, auteur, reponse, missions=()):
@@ -407,13 +515,103 @@ def traiter_instruction(iid, auteur, reponse, missions=()):
     return ajouter("instruction.traitee", {"instruction": iid, "siege": x["siege"], "reponse": reponse, "missions": list(missions)}, auteur)
 
 
-def fixer_priorite(siege, priorite, auteur, motif=None):
-    if auteur.get("role") != "president":
-        raise ErreurIle("seul le président fixe la priorité d'un siège")
+def fixer_priorite(siege, priorite, cle, motif=None, canal=None):
+    _cle_requise(cle)
     _siege_valide(siege)
     if priorite not in PRIORITES:
         raise ErreurIle("priorité : P1, P2 ou P3")
-    return ajouter("siege.priorite", {"siege": siege, "priorite": priorite, "motif": motif}, auteur)
+    return ajouter("siege.priorite", {"siege": siege, "priorite": priorite, "motif": motif}, {"canal": canal} if canal else {}, cle=cle)
+
+
+# ---------------------------------------------------------------- identité présidentielle
+def identite_courante():
+    return etat()["identite"]
+
+
+def creer_identite(phrase: str, canal="terminal"):
+    """Première identité (ou nouvelle phrase, si l'ancienne clé signe le changement — voir changer_phrase)."""
+    if identite_courante():
+        raise ErreurIle("une identité présidentielle existe déjà : pour changer de phrase, utilise « president changer-phrase »")
+    cle, pub = president.nouvelle_identite(phrase)
+    pub.update(preuve=cle.signer(("possession:" + cle.publique).encode()), canal=canal)
+    ajouter("president.identite", pub, {"canal": canal}, cle=cle)
+    return cle
+
+
+def changer_phrase(ancienne: president.ClePresident, nouvelle_phrase: str, canal="terminal"):
+    cle, pub = president.nouvelle_identite(nouvelle_phrase)
+    pub.update(preuve=cle.signer(("possession:" + cle.publique).encode()), canal=canal, remplace=ancienne.empreinte)
+    ajouter("president.identite", pub, {"canal": canal}, cle=ancienne)
+    return cle
+
+
+def deverrouiller(phrase: str) -> president.ClePresident:
+    try:
+        return president.deverrouiller(phrase, identite_courante())
+    except president.ErreurPresident as e:
+        raise ErreurIle(str(e))
+
+
+# ---------------------------------------------------------------- file d'approbations
+def empreinte_commande(outil: str, cible: str) -> str:
+    return hashlib.sha256(f"{outil}\n{(cible or '').strip()}".encode("utf-8")).hexdigest()
+
+
+def demander_approbation(categorie, regle, raison, outil, commande, auteur, cwd=None, agent=None, siege=None, mode="unique"):
+    """Inscrit une demande (ou renvoie celle qui attend déjà pour la même opération exacte)."""
+    emp = empreinte_commande(outil, commande)
+    for a in etat()["approbations"].values():
+        if a["empreinte"] == emp and a["statut"] == "en_attente":
+            return a["id"], False
+    numero = lambda evs: {"approbation": f"A-{sum(1 for e in evs if e['type'] == 'approbation.demandee') + 1:04d}"}
+    ev = ajouter("approbation.demandee", {"categorie": categorie, "regle": regle, "raison": raison, "outil": outil, "commande": (commande or "")[:2000],
+                                         "empreinte": emp, "cwd": cwd, "agent": agent, "siege": siege, "mode": mode}, auteur, completer=numero)
+    return ev["donnees"]["approbation"], True
+
+
+def accorder(aid, cle, motif=None, duree_h=DUREE_APPROBATION_H, canal=None):
+    _cle_requise(cle)
+    a = etat()["approbations"].get(aid)
+    if not a or a["statut"] != "en_attente":
+        raise ErreurIle(f"demande inconnue ou déjà traitée : {aid}")
+    duree_h = max(.1, min(float(duree_h or DUREE_APPROBATION_H), 24 * 7))
+    expire = (dt.datetime.now().astimezone() + dt.timedelta(hours=duree_h)).isoformat(timespec="seconds")
+    return ajouter("approbation.accordee", {"approbation": aid, "siege": a.get("siege"), "motif": motif, "expire": expire, "empreinte": a["empreinte"]}, {"canal": canal} if canal else {}, cle=cle)
+
+
+def refuser(aid, cle, motif=None, canal=None):
+    _cle_requise(cle)
+    a = etat()["approbations"].get(aid)
+    if not a or a["statut"] != "en_attente":
+        raise ErreurIle(f"demande inconnue ou déjà traitée : {aid}")
+    return ajouter("approbation.refusee", {"approbation": aid, "siege": a.get("siege"), "motif": motif, "empreinte": a["empreinte"]}, {"canal": canal} if canal else {}, cle=cle)
+
+
+def approbation_valide(outil, commande):
+    """Approbation présidentielle signée, non expirée, non consommée, pour CETTE opération exacte."""
+    emp = empreinte_commande(outil, commande)
+    for a in etat()["approbations"].values():
+        if a["empreinte"] == emp and a["statut"] == "accordee":
+            return a
+    return None
+
+
+def utiliser_approbation(aid, agent, auteur):
+    return ajouter("approbation.utilisee", {"approbation": aid, "agent": agent}, auteur)
+
+
+def inscrire_refus(categorie, regle, raison, outil, extrait, agent, approbation=None):
+    return ajouter("garde.refus", {"categorie": categorie, "regle": regle, "raison": raison, "outil": outil, "extrait": (extrait or "")[:300], "agent": agent, "approbation": approbation},
+                   _auteur("garde", "hook", session_id=(agent or {}).get("session_id")))
+
+
+# ---------------------------------------------------------------- tests exécutés
+def enregistrer_test(siege, intitule, resultat, auteur, commande=None, resume=None, details=None, mission=None, execute_le=None, preuve=None):
+    _siege_valide(siege)
+    if resultat not in RESULTATS_TEST:
+        raise ErreurIle(f"résultat : {', '.join(RESULTATS_TEST)}")
+    return ajouter("test.execute", {"siege": siege, "mission": mission, "intitule": intitule, "commande": commande, "resultat": resultat,
+                                    "resume": resume, "details": details, "execute_le": execute_le or maintenant(), "preuve": preuve}, auteur)
 
 
 def etat_siege(siege, phase, resume, auteur, indicateurs=(), source=None):
@@ -491,7 +689,8 @@ def briefing_dg(session_id=None) -> str:
     dec = [d for d in p["decisions"].values() if d["verdict"] is None]
     pb = [x for x in p["problemes"].values() if x["ouvert"] and x["gravite"] == "bloquant"]
     props = sorted([m for m in p["missions"].values() if m["statut"] == "proposee"], key=lambda m: (m["rang"] or 999))
-    if not (ins or dec or pb or props):
+    apr = [a for a in p["approbations"].values() if a["statut"] == "en_attente"]
+    if not (ins or dec or pb or props or apr):
         return ""
     L = ["# Briefing du directeur général (registre des opérations)", ""]
     if ins:
@@ -503,6 +702,10 @@ def briefing_dg(session_id=None) -> str:
     if dec:
         L.append(f"## Décisions en attente du président : {len(dec)} (ne rien faire de sensible à leur place)")
         L += [f"- {d['id']} [{d['siege']}] {d['titre']}" for d in dec]
+        L.append("")
+    if apr:
+        L.append(f"## Opérations sensibles en attente d'approbation : {len(apr)} (le garde les bloque jusqu'à l'accord signé du président)")
+        L += [f"- {a['id']} [{a['categorie']}] {(a['commande'] or '')[:100]}" for a in apr]
         L.append("")
     if pb:
         L.append("## Problèmes bloquants ouverts")
@@ -528,6 +731,10 @@ def _resume(ev) -> str:
         "decision.demandee": lambda: d["titre"][:90], "decision.tranchee": lambda: f"{d['decision']} → {d['verdict']}",
         "probleme.signale": lambda: f"[{d['gravite']}] {d['titre'][:80]}", "run.debut": lambda: f"{d['run']} {d['role']} → {d.get('siege') or '—'}",
         "run.fin": lambda: f"{d['run']} {d.get('resultat') or ''}"[:90],
+        "approbation.demandee": lambda: f"{d['approbation']} [{d['categorie']}] {(d.get('commande') or '')[:70]}",
+        "approbation.accordee": lambda: f"{d['approbation']} accordée", "approbation.refusee": lambda: f"{d['approbation']} refusée",
+        "approbation.utilisee": lambda: f"{d['approbation']} utilisée", "garde.refus": lambda: f"[{d['categorie']}] {d['raison'][:80]}",
+        "test.execute": lambda: f"[{d['resultat']}] {d['intitule'][:80]}", "president.identite": lambda: f"identité {d['empreinte']}",
     }.get(t, lambda: (d.get("titre") or d.get("siege") or "")[:90])()
 
 
@@ -568,8 +775,25 @@ def main(argv=None):
     x = rsp.add_parser("debut"); x.add_argument("--role", required=True); x.add_argument("--siege"); x.add_argument("--mission"); x.add_argument("--agent-id")
     x = rsp.add_parser("fin"); x.add_argument("id"); x.add_argument("--resultat")
     ca = sp.add_parser("capteur", help="réservé aux hooks : lit le JSON du hook sur stdin"); ca.add_argument("evenement", choices=("debut", "fin", "session"))
+    ap_ = sp.add_parser("approbation", help="file d'approbations"); asp = ap_.add_subparsers(dest="sous", required=True)
+    asp.add_parser("liste")
+    x = asp.add_parser("demander"); x.add_argument("--categorie", required=True); x.add_argument("--raison", required=True); x.add_argument("--commande", required=True); x.add_argument("--outil", default="Bash"); x.add_argument("--siege")
+    te = sp.add_parser("test", help="résultats de tests réellement exécutés"); x = te.add_subparsers(dest="sous", required=True).add_parser("enregistrer")
+    x.add_argument("--siege", required=True); x.add_argument("--intitule", required=True); x.add_argument("--resultat", required=True, choices=RESULTATS_TEST)
+    x.add_argument("--commande"); x.add_argument("--resume"); x.add_argument("--mission"); x.add_argument("--execute-le"); x.add_argument("--preuve")
+    pr = sp.add_parser("president", help="actes du président (phrase saisie dans un vrai terminal)"); prs = pr.add_subparsers(dest="sous", required=True)
+    prs.add_parser("creer"); prs.add_parser("statut"); prs.add_parser("changer-phrase")
+    x = prs.add_parser("approuver"); x.add_argument("id"); x.add_argument("--motif"); x.add_argument("--heures", type=float, default=DUREE_APPROBATION_H)
+    x = prs.add_parser("refuser"); x.add_argument("id"); x.add_argument("--motif")
+    x = prs.add_parser("mission"); x.add_argument("id"); x.add_argument("vers", choices=("planifiee", "rejetee", "reportee", "proposee", "attente_president")); x.add_argument("--motif")
     a = ap.parse_args(argv)
     who = lambda: auteur_cli(a.auteur, a.run)
+
+    def cle_terminal():
+        try:
+            return deverrouiller(president.demander_phrase())
+        except president.ErreurPresident as e:
+            raise ErreurIle(str(e))
     try:
         if a.cmd == "verifier":
             r = verifier()
@@ -598,7 +822,8 @@ def main(argv=None):
         if a.cmd == "etat":
             p = etat(); v = verifier()
             print(f"Journal : {p['evenements']} événements — {'intègre' if v['ok'] else 'ALTÉRÉ'}")
-            print(f"Instructions non traitées : {sum(1 for x in p['instructions'].values() if x['statut'] != 'traitee')} · décisions en attente : {sum(1 for x in p['decisions'].values() if x['verdict'] is None)} · problèmes ouverts : {sum(1 for x in p['problemes'].values() if x['ouvert'])}")
+            print(f"Identité présidentielle : {p['identite']['empreinte'] if p['identite'] else 'non créée'} · actes rejetés : {len(p['rejets'])} · refus du garde : {len(p['refus'])}")
+            print(f"Instructions non traitées : {sum(1 for x in p['instructions'].values() if x['statut'] != 'traitee')} · décisions en attente : {sum(1 for x in p['decisions'].values() if x['verdict'] is None)} · approbations en attente : {sum(1 for x in p['approbations'].values() if x['statut'] == 'en_attente')} · problèmes ouverts : {sum(1 for x in p['problemes'].values() if x['ouvert'])}")
             print(f"Exécutions actives : {len(p['runs_actifs'])} · missions : " + ", ".join(f"{s} {sum(1 for m in p['missions'].values() if m['statut'] == s)}" for s in STATUTS if any(m['statut'] == s for m in p['missions'].values())))
             return 0
         if a.cmd == "journal":
@@ -614,7 +839,7 @@ def main(argv=None):
             return 0
         if a.cmd == "instruction":
             if a.sous == "donner":
-                ev = donner_instruction(a.texte, auteur_cli("president"), a.siege)
+                ev = donner_instruction(a.texte, cle_terminal(), a.siege, canal="terminal")
             elif a.sous == "traiter":
                 ev = traiter_instruction(a.id, who(), a.reponse, a.mission)
             else:
@@ -638,7 +863,7 @@ def main(argv=None):
         elif a.cmd == "probleme":
             ev = signaler_probleme(a.siege, a.titre, a.gravite, who(), a.source, a.preuve) if a.sous == "signaler" else resoudre_probleme(a.id, who(), a.motif)
         elif a.cmd == "decision":
-            ev = demander_decision(a.siege, a.titre, a.question, who(), a.contexte, a.source, a.mission) if a.sous == "demander" else trancher(a.id, a.verdict, auteur_cli(a.auteur), a.motif)
+            ev = demander_decision(a.siege, a.titre, a.question, who(), a.contexte, a.source, a.mission) if a.sous == "demander" else trancher(a.id, a.verdict, cle_terminal(), a.motif, canal="terminal")
         elif a.cmd == "siege":
             if a.sous == "etat":
                 inds = []
@@ -649,9 +874,49 @@ def main(argv=None):
                     inds.append({"nom": mm[1].strip(), "valeur": mm[2].strip(), "source": (mm[3] or "").strip() or None})
                 ev = etat_siege(a.siege, a.phase, a.resume, who(), inds, a.source)
             else:
-                ev = fixer_priorite(a.siege, a.priorite, auteur_cli(a.auteur), a.motif)
+                ev = fixer_priorite(a.siege, a.priorite, cle_terminal(), a.motif, canal="terminal")
         elif a.cmd == "artefact":
             ev = deposer_artefact(a.chemin, who(), a.mission, a.nature)
+        elif a.cmd == "approbation":
+            if a.sous == "liste":
+                for x in etat()["approbations"].values():
+                    print(f"{x['id']} [{x['statut']:<10}] {x['categorie']:<14} {(x['commande'] or '')[:90]}")
+                return 0
+            aid, neuve = demander_approbation(a.categorie, "demande manuelle", a.raison, a.outil, a.commande, who(), cwd=os.getcwd(), agent={"role": a.auteur}, siege=a.siege)
+            print(f"{aid} {'inscrite' if neuve else 'déjà en attente'} — en attente de l'accord signé du président"); return 0
+        elif a.cmd == "test":
+            ev = enregistrer_test(a.siege, a.intitule, a.resultat, who(), a.commande, a.resume, None, a.mission, a.execute_le, a.preuve)
+        elif a.cmd == "president":
+            if a.sous == "statut":
+                i = identite_courante()
+                print(f"Identité présidentielle : {i['empreinte']} (créée le {i['quand'][:16]}, {i.get('canal') or '—'})" if i else "Aucune identité présidentielle. Crée-la avec : ./ile president"); return 0
+            if a.sous == "creer":
+                if identite_courante():
+                    raise ErreurIle("une identité présidentielle existe déjà (empreinte " + identite_courante()["empreinte"] + ")")
+                p1 = president.demander_phrase("Choisis ta phrase présidentielle (12 caractères au moins) : ")
+                if president.demander_phrase("Répète-la : ") != p1:
+                    raise ErreurIle("les deux saisies diffèrent")
+                try:
+                    cle = creer_identite(p1)
+                except president.ErreurPresident as e:
+                    raise ErreurIle(str(e))
+                print(f"✔ Identité présidentielle créée — empreinte {cle.empreinte}. Retiens ta phrase : elle n'est écrite nulle part et ne peut pas être récupérée."); return 0
+            cle = cle_terminal()
+            if a.sous == "changer-phrase":
+                p1 = president.demander_phrase("Nouvelle phrase : ")
+                if president.demander_phrase("Répète-la : ") != p1:
+                    raise ErreurIle("les deux saisies diffèrent")
+                try:
+                    n = changer_phrase(cle, p1)
+                except president.ErreurPresident as e:
+                    raise ErreurIle(str(e))
+                print(f"✔ Nouvelle identité {n.empreinte}, signée par l'ancienne."); return 0
+            if a.sous == "approuver":
+                ev = accorder(a.id, cle, a.motif, a.heures, canal="terminal")
+            elif a.sous == "refuser":
+                ev = refuser(a.id, cle, a.motif, canal="terminal")
+            else:
+                ev = changer_statut(a.id, a.vers, {}, a.motif, cle=cle)
         elif a.cmd == "run":
             ev = run_debut(a.role, who(), a.siege, a.mission, a.agent_id) if a.sous == "debut" else run_fin(a.id, who(), a.resultat)
         else:

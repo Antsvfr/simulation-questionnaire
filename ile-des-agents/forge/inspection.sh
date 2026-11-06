@@ -24,6 +24,11 @@ besoin village/index.html
 besoin village/ville.js
 besoin village/residence.html
 besoin operations/ile.py
+besoin operations/garde.py
+besoin operations/president.py
+besoin operations/signature.py
+besoin village/connexion.html
+besoin ile
 # Registre des opérations : le journal chaîné doit être intègre (toute ligne modifiée est détectée)
 if [ -f operations/journal.jsonl ]; then
   if python3 operations/ile.py verifier >/dev/null 2>&1; then OK=$((OK+1)); else ERREURS+=("journal des opérations altéré : python3 operations/ile.py verifier"); fi

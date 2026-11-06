@@ -6,3 +6,7 @@ operations/.mission-courante
 operations/.verrou
 operations/capteurs-erreurs.log
 operations/etat.json
+operations/STOP
+operations/acces.json
+operations/serveur.log
+operations/.serveur.pid
