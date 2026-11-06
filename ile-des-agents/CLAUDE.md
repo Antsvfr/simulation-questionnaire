@@ -28,7 +28,7 @@ Questions rapides (une définition, une info) : réponds directement, sans circu
 ## Règles de l'île
 
 - Chaque maison vit dans `maisons/<id>/` avec son propre `CLAUDE.md`, un `journal.md` et ses dossiers. Un chef ne sort jamais de sa maison sans passer par toi.
-- `registre.json` est la source de vérité : toute maison créée, renommée ou démolie y est inscrite. Le village 3D (`village/index.html`) le lit.
+- `registre.json` est la source de vérité : toute maison créée, renommée ou démolie y est inscrite. Le village 3D (`village/index.html` + `village/ville.js`) le lit : un bâtiment ajouté au registre apparaît dans la métropole (siège générique si aucune architecture dédiée n'existe, à ajouter dans `HQ` de `ville.js`).
 - Les procès-verbaux du Conseil vont dans `conseil/proces-verbaux/AAAA-MM-JJ-sujet.md`.
 - Les rapports de la Forge vont dans `forge/rapports/`.
 - Tout est rédigé en français, sauf le contenu de la maison École/anglais.
@@ -38,7 +38,7 @@ Questions rapides (une définition, une info) : réponds directement, sans circu
 - `/conseil <prompt>` — faire passer un prompt devant le Conseil, sans exécuter.
 - `/nouvelle-maison <nom>` — construire une branche (dossier, agent, registre, bâtiment 3D).
 - `/inspection` — la Forge inspecte toute l'île et répare.
-- Voir l'île : `python3 serveur.py` (sert la racine et ouvre `/village/`).
+- Voir l'île : `python3 serveur.py` (sert la racine et ouvre `/village/`). Options d'URL : `?heure=jour|crepuscule|nuit`, `?qualite=bas|moyen|haut`, `?vue=<quartier>`, `?ouvrir=<id>`.
 
 ## Activité en direct
 
@@ -52,3 +52,10 @@ Trois projets d'Anton ont leur grande maison : **LexNote**, **REV-EM**, **UPSA S
 - Aucun agent ne modifie un projet extérieur à l'île, ne touche à `main`, ne fusionne, ne pousse ni ne déploie sans l'accord explicite d'Anton dans le chat.
 - Le code de ces projets n'est pas dans l'île : REV-EM et LexNote sont sur GitHub (copies de lecture dans `/home/user/antsvfr/`), UPSA est seulement sur le Mac d'Anton.
 - Quand deux sources se contredisent, on consigne l'écart et on le fait vérifier ; on ne tranche pas.
+
+## La métropole 3D (`village/`)
+
+L'île est une métropole insulaire : trois terrains reliés par deux ponts (île principale, îlot technologique au nord, île portuaire à l'est), un réseau routier (graphe) sur lequel circulent les voitures **et les courriers des agents**, six quartiers (centre-ville, stratégique, technologique, entreprises, résidentiel, port) et des espaces naturels (plages, parcs, promenade).
+- **Un siège par projet**, d'architecture propre (REV-EM tour torsadée, LexNote en V, UPSA hexagonale, EM'ERGENCY penchée, Cuvée Campus ronde, Vétotri à dôme, École avec tour d'horloge). La Mairie est le cerveau central ; le Conseil et la Forge sont les centres de contrôle ; les chantiers du registre sont de vrais chantiers (échafaudage, grue).
+- **L'activité reste réelle** : `etat-de-l-ile.json` allume le siège concerné (façade, faisceau, fumée) et envoie le courrier sur la vraie route Mairie → Conseil → siège → Forge. Fichier absent : comportement d'ambiance.
+- Performance : instancing (routes, arbres, lampadaires, voitures, conteneurs), LOD sur les tours de décor, construction progressive, qualité adaptative (bas / moyen / haut).

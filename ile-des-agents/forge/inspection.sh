@@ -21,6 +21,7 @@ besoin CLAUDE.md
 besoin registre.json
 besoin journal-de-l-ile.md
 besoin village/index.html
+besoin village/ville.js
 for a in critique-clarte critique-exigence critique-strategie forgeron architecte; do
   besoin ".claude/agents/$a.md"
 done

@@ -19,15 +19,17 @@
         "registre.json : le cadastre",
         "journal-de-l-ile.md : l'histoire de l'île"
       ],
-      "commande": "claude"
+      "commande": "claude",
+      "quartier": "Quartier stratégique",
+      "fonction": "Centre stratégique : le Maire, cerveau de la métropole"
     },
     {
       "id": "conseil",
       "nom": "Conseil des Critiques",
       "type": "conseil",
       "pos": [
-        -6,
-        -5
+        -24,
+        -71
       ],
       "couleur": "#6b4fa0",
       "agent": ".claude/agents/critique-*.md (×3)",
@@ -39,14 +41,16 @@
         "Tour Stratège : objectif réel, priorités",
         "proces-verbaux/ : chaque avis rendu"
       ],
-      "commande": "/conseil <ton prompt>"
+      "commande": "/conseil <ton prompt>",
+      "quartier": "Quartier technologique",
+      "fonction": "Centre de contrôle : les 3 critiques"
     },
     {
       "id": "forge",
       "nom": "La Forge",
       "type": "forge",
       "pos": [
-        7,
+        97,
         -6
       ],
       "couleur": "#3d3a36",
@@ -58,15 +62,17 @@
         "rapports/ : un rapport par inspection",
         "Hook de fin de tâche : réparation automatique"
       ],
-      "commande": "/inspection"
+      "commande": "/inspection",
+      "quartier": "Port industriel",
+      "fonction": "Centre de contrôle : vérification et réparation"
     },
     {
       "id": "cuvee-campus",
       "nom": "Cave Cuvée Campus",
       "type": "maison",
       "pos": [
-        -8,
-        4
+        -41.3,
+        21.6
       ],
       "couleur": "#7d2e46",
       "agent": ".claude/agents/chef-cuvee-campus.md",
@@ -78,15 +84,17 @@
         "equipe.md",
         "journal.md"
       ],
-      "commande": "Utilise chef-cuvee-campus pour …"
+      "commande": "Utilise chef-cuvee-campus pour …",
+      "quartier": "Quartier des entreprises",
+      "fonction": "Siège du projet"
     },
     {
       "id": "bde-emergency",
       "nom": "QG EM'ERGENCY",
       "type": "maison",
       "pos": [
-        -2,
-        8
+        -29.4,
+        32.8
       ],
       "couleur": "#d6402b",
       "agent": ".claude/agents/chef-bde-emergency.md",
@@ -98,15 +106,17 @@
         "com/",
         "journal.md"
       ],
-      "commande": "Utilise chef-bde-emergency pour …"
+      "commande": "Utilise chef-bde-emergency pour …",
+      "quartier": "Quartier des entreprises",
+      "fonction": "Siège du projet"
     },
     {
       "id": "vetotri",
       "nom": "Labo Vétotri",
       "type": "maison",
       "pos": [
-        5,
-        7
+        41.3,
+        21.6
       ],
       "couleur": "#2f8f83",
       "agent": ".claude/agents/chef-vetotri.md",
@@ -119,15 +129,17 @@
         "noms.md",
         "journal.md"
       ],
-      "commande": "Utilise chef-vetotri pour …"
+      "commande": "Utilise chef-vetotri pour …",
+      "quartier": "Quartier des entreprises",
+      "fonction": "Siège du projet"
     },
     {
       "id": "ecole",
       "nom": "École",
       "type": "maison",
       "pos": [
-        9,
-        1
+        -34,
+        -16
       ],
       "couleur": "#2e5c9e",
       "agent": ".claude/agents/chef-ecole.md",
@@ -139,16 +151,17 @@
         "fiches/",
         "journal.md"
       ],
-      "commande": "Utilise chef-ecole pour …"
+      "commande": "Utilise chef-ecole pour …",
+      "quartier": "Campus",
+      "fonction": "Siège du projet"
     },
     {
       "id": "lexnote",
       "nom": "LexNote",
       "type": "maison",
-      "taille": "grande",
       "pos": [
-        -12,
-        10
+        -10.6,
+        39.2
       ],
       "couleur": "#1f6f6a",
       "agent": ".claude/agents/chef-lexnote.md",
@@ -195,16 +208,17 @@
         "etat-des-lieux.md",
         "journal.md"
       ],
-      "commande": "Utilise chef-lexnote pour …"
+      "commande": "Utilise chef-lexnote pour …",
+      "quartier": "Quartier des entreprises",
+      "fonction": "Siège du projet"
     },
     {
       "id": "rev-em",
       "nom": "REV-EM",
       "type": "maison",
-      "taille": "grande",
       "pos": [
-        9,
-        13
+        10.6,
+        39.2
       ],
       "couleur": "#b8572b",
       "agent": ".claude/agents/chef-rev-em.md",
@@ -252,16 +266,17 @@
         "etat-des-lieux.md",
         "journal.md"
       ],
-      "commande": "Utilise chef-rev-em pour …"
+      "commande": "Utilise chef-rev-em pour …",
+      "quartier": "Quartier des entreprises",
+      "fonction": "Siège du projet"
     },
     {
       "id": "upsa-sales-pilot",
       "nom": "UPSA Sales Pilot",
       "type": "maison",
-      "taille": "grande",
       "pos": [
-        1,
-        14
+        29.4,
+        32.8
       ],
       "couleur": "#7a3f8f",
       "agent": ".claude/agents/chef-upsa-sales-pilot.md",
@@ -298,15 +313,17 @@
         "etat-des-lieux.md",
         "journal.md"
       ],
-      "commande": "Utilise chef-upsa-sales-pilot pour …"
+      "commande": "Utilise chef-upsa-sales-pilot pour …",
+      "quartier": "Quartier des entreprises",
+      "fonction": "Siège du projet"
     },
     {
       "id": "bibliotheque",
       "nom": "Bibliothèque",
       "type": "chantier",
       "pos": [
-        -2,
-        -11
+        -42,
+        -68
       ],
       "couleur": "#a0703c",
       "agent": "à construire",
@@ -317,15 +334,17 @@
         "sources/",
         "resumes/"
       ],
-      "commande": "/nouvelle-maison Bibliothèque"
+      "commande": "/nouvelle-maison Bibliothèque",
+      "quartier": "Quartier technologique",
+      "fonction": "Chantier : futur centre de connaissance"
     },
     {
       "id": "phare",
       "nom": "Phare",
       "type": "chantier",
       "pos": [
-        10,
-        -10
+        96,
+        -19
       ],
       "couleur": "#e0b23a",
       "agent": "à construire",
@@ -335,15 +354,17 @@
         "echeances.md",
         "tâches planifiées"
       ],
-      "commande": "/nouvelle-maison Phare"
+      "commande": "/nouvelle-maison Phare",
+      "quartier": "Port industriel",
+      "fonction": "Chantier : futur centre de veille"
     },
     {
       "id": "port",
       "nom": "Port",
       "type": "chantier",
       "pos": [
-        -13,
-        1
+        97,
+        22
       ],
       "couleur": "#4a7fa8",
       "agent": "à construire",
@@ -353,15 +374,17 @@
         "brouillons/",
         "envoyes.md"
       ],
-      "commande": "/nouvelle-maison Port"
+      "commande": "/nouvelle-maison Port",
+      "quartier": "Port industriel",
+      "fonction": "Chantier : futur quai de départ"
     },
     {
       "id": "observatoire",
       "nom": "Observatoire",
       "type": "chantier",
       "pos": [
-        12,
-        6
+        24,
+        -71
       ],
       "couleur": "#5a4a8a",
       "agent": "à construire",
@@ -371,15 +394,17 @@
         "donnees/",
         "dashboards/"
       ],
-      "commande": "/nouvelle-maison Observatoire"
+      "commande": "/nouvelle-maison Observatoire",
+      "quartier": "Quartier technologique",
+      "fonction": "Chantier : futur centre de données"
     },
     {
       "id": "academie",
       "nom": "Académie",
       "type": "chantier",
       "pos": [
-        -10,
-        -8
+        -48,
+        0
       ],
       "couleur": "#3f8a4e",
       "agent": "à construire",
@@ -389,7 +414,9 @@
         "quiz/",
         "simulations/"
       ],
-      "commande": "/nouvelle-maison Académie"
+      "commande": "/nouvelle-maison Académie",
+      "quartier": "Campus",
+      "fonction": "Chantier : future académie d'entraînement"
     }
   ]
 }
