@@ -18,13 +18,14 @@ import functools
 import http.server
 import json
 import os
+import posixpath
 import re
 import secrets
 import sys
 import threading
 import webbrowser
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 RACINE = Path(__file__).resolve().parent
 sys.path.insert(0, str(RACINE / "operations"))
@@ -33,6 +34,12 @@ import ile  # noqa: E402
 JETON = secrets.token_urlsafe(24)          # change à chaque démarrage, jamais écrit sur disque
 PRESIDENT = {"role": "president", "verifie": "jeton", "canal": "Résidence"}
 INTERDITS = re.compile(r"^/(operations/(?!etat\.json$)|\.|.*/\.)")   # fichiers internes du registre, fichiers cachés
+
+
+def _chemin_normalise(path: str) -> str:
+    """Chemin tel que le serveur de fichiers le résoudra : décodé (%2E, %6F…), normalisé, en minuscules
+    (systèmes de fichiers insensibles à la casse, comme sur macOS). INTERDITS s'applique à cette forme."""
+    return "/" + posixpath.normpath(unquote(path)).lstrip("/").lower()
 
 
 def _premieres_lignes(p: Path, n=4):
@@ -100,6 +107,14 @@ class Gestionnaire(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
+    def _hote_ok(self):
+        """Refuse un nom d'hôte étranger (rebinding DNS : un site qui se ferait résoudre en 127.0.0.1)."""
+        h = self.headers.get("Host")
+        if h is None:
+            return True
+        port = self.server.server_address[1]
+        return h.lower() in (f"localhost:{port}", f"127.0.0.1:{port}", "localhost", "127.0.0.1")
+
     def _origine_ok(self):
         o = self.headers.get("Origin")
         if o is None:
@@ -109,7 +124,9 @@ class Gestionnaire(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
-        if INTERDITS.match(u.path):
+        if not self._hote_ok():
+            return self._json(403, {"erreur": "hôte refusé"})
+        if INTERDITS.match(_chemin_normalise(u.path)):
             return self._json(404, {"erreur": "introuvable"})
         try:
             if u.path == "/api/etat":
@@ -129,7 +146,10 @@ class Gestionnaire(http.server.SimpleHTTPRequestHandler):
                     evs = [e for e in evs if e["donnees"].get("siege") == q["siege"][0]]
                 if q.get("type"):
                     evs = [e for e in evs if e["type"].startswith(q["type"][0])]
-                n = min(int(q.get("n", ["200"])[0]), 2000)
+                try:
+                    n = max(1, min(int(q.get("n", ["200"])[0]), 2000))
+                except ValueError:
+                    return self._json(400, {"erreur": "n doit être un entier"})
                 return self._json(200, {"evenements": evs[-n:][::-1], "total": len(evs)})
         except ile.ErreurIle as e:
             return self._json(500, {"erreur": str(e)})
@@ -139,17 +159,26 @@ class Gestionnaire(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
+        if not self._hote_ok():
+            return self._json(403, {"erreur": "hôte refusé"})
         if not self._origine_ok():
             return self._json(403, {"erreur": "origine refusée"})
         if not secrets.compare_digest(self.headers.get("X-Ile-Jeton", ""), JETON):
             return self._json(403, {"erreur": "jeton absent ou invalide"})
         if "application/json" not in (self.headers.get("Content-Type") or ""):
             return self._json(415, {"erreur": "JSON attendu"})
-        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = -1
+        if n < 0:
+            return self._json(400, {"erreur": "Content-Length invalide"})
         if n > 16384:
             return self._json(413, {"erreur": "requête trop grande"})
         try:
             d = json.loads(self.rfile.read(n) or b"{}")
+            if not isinstance(d, dict):
+                return self._json(400, {"erreur": "objet JSON attendu"})
             if u.path == "/api/instruction":
                 ev = ile.donner_instruction(d.get("texte"), PRESIDENT, d.get("siege") or None)
             elif u.path == "/api/decision":

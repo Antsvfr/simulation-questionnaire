@@ -102,10 +102,14 @@ def lire() -> list[dict]:
     return out
 
 
-def ajouter(type_: str, donnees: dict, auteur: dict) -> dict:
-    """Ajoute un événement chaîné (sous verrou) puis recalcule les projections."""
+def ajouter(type_: str, donnees: dict, auteur: dict, completer=None) -> dict:
+    """Ajoute un événement chaîné (sous verrou) puis recalcule les projections.
+    `completer(evs)` (facultatif) renvoie les champs à calculer SOUS le verrou (identifiants R-…, M-…) :
+    deux écrivains parallèles ne peuvent alors pas obtenir le même numéro."""
     with _Verrou():
         evs = lire()
+        if completer:
+            donnees = {**donnees, **completer(evs)}
         prec = evs[-1]["hash"] if evs else GENESE
         n = len(evs) + 1
         ev = {"n": n, "id": f"E-{n:06d}", "quand": maintenant(), "type": type_, "auteur": auteur, "donnees": donnees, "prec": prec}
@@ -301,16 +305,18 @@ def proposer_mission(siege, titre, objectif, criteres, auteur, valeur=None, urge
     _siege_valide(siege)
     if not titre or not criteres:
         raise ErreurIle("une mission exige un titre et au moins un critère d'acceptation")
-    p = etat()
-    n = sum(1 for m in p["missions"].values()) + 1
-    mid = f"M-{dt.date.today():%Y%m%d}-{n:03d}"
-    while mid in p["missions"]:
-        n += 1
+    def numero(evs):
+        connues = {e["donnees"]["mission"] for e in evs if e["type"] == "mission.proposee"}
+        n = len(connues) + 1
         mid = f"M-{dt.date.today():%Y%m%d}-{n:03d}"
-    return ajouter("mission.proposee", {"mission": mid, "siege": siege, "titre": titre, "objectif": objectif, "criteres": list(criteres),
+        while mid in connues:
+            n += 1
+            mid = f"M-{dt.date.today():%Y%m%d}-{n:03d}"
+        return {"mission": mid}
+    return ajouter("mission.proposee", {"siege": siege, "titre": titre, "objectif": objectif, "criteres": list(criteres),
                                         "valeur": _note(valeur, "valeur"), "urgence": _note(urgence, "urgence"), "effort": _note(effort, "effort"),
                                         "risque": _note(risque, "risque"), "sensible": bool(sensible), "sources": list(sources),
-                                        "origine": origine or auteur.get("role")}, auteur)
+                                        "origine": origine or auteur.get("role")}, auteur, completer=numero)
 
 
 def changer_statut(mission, vers, auteur, motif=None):
@@ -424,11 +430,11 @@ def deposer_artefact(chemin, auteur, mission=None, nature=None):
 
 def run_debut(role, auteur, siege=None, mission=None, agent_id=None, session_id=None, transcript=None):
     p = etat()
-    rid = f"R-{sum(1 for _ in p['runs']) + 1:04d}"
     siege = siege or siege_de_role(role)
     if mission is None:
         mission = _mission_courante(p, siege)
-    return ajouter("run.debut", {"run": rid, "role": role, "siege": siege, "mission": mission, "agent_id": agent_id, "session_id": session_id, "transcript": transcript}, auteur)
+    numero = lambda evs: {"run": f"R-{len({e['donnees']['run'] for e in evs if e['type'] == 'run.debut'}) + 1:04d}"}
+    return ajouter("run.debut", {"role": role, "siege": siege, "mission": mission, "agent_id": agent_id, "session_id": session_id, "transcript": transcript}, auteur, completer=numero)
 
 
 def run_fin(rid, auteur, resultat=None):

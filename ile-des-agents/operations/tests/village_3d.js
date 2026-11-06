@@ -17,6 +17,8 @@ const cli = (...a) => execFileSync("python3", [path.join(ILE, "operations", "ile
   await p.waitForFunction(() => window.__metropole && window.__metropole.ready, null, {timeout: 300000});
   const lire = () => p.evaluate(() => ({mode: window.__metropole.mode(), courriers: window.__metropole.coursiersVisibles(), allumes: window.__metropole.siegesAllumes(), bandeau: document.getElementById("now").textContent}));
   await p.waitForTimeout(7000);
+  // Exécutions réellement ouvertes avant le test (ex. la Forge qui lance les preuves) : elles restent allumées, légitimement.
+  const base = await p.evaluate(async () => (await (await fetch("/api/etat", {cache: "no-store"})).json()));
   const avant = await lire();
   const r1 = cli("run", "debut", "--role", "chef-rev-em").match(/R-\d+/)[0], r2 = cli("run", "debut", "--role", "chef-lexnote").match(/R-\d+/)[0];
   await p.waitForTimeout(12000);
@@ -26,8 +28,9 @@ const cli = (...a) => execFileSync("python3", [path.join(ILE, "operations", "ile
   await p.waitForTimeout(12000);
   const apres = await lire();
   await b.close();
-  const sansAgent = s => s.courriers === 0 && s.allumes.every(x => x === "residence");
-  const ok = avant.mode === "reel" && sansAgent(avant) && pendant.courriers === 2 && ["rev-em", "lexnote"].every(x => pendant.allumes.includes(x)) && sansAgent(apres) && !errs.length;
-  console.log(`avant : ${avant.courriers} courrier(s), allumés ${JSON.stringify(avant.allumes)} · pendant : ${pendant.courriers} courrier(s), allumés ${JSON.stringify(pendant.allumes)} — « ${pendant.bandeau} » · après : ${apres.courriers} courrier(s), allumés ${JSON.stringify(apres.allumes)} · erreurs console : ${errs.length ? errs.join(" | ") : "aucune"} · capture : ${shot}`);
+  const permis = new Set(["residence", ...base.sieges_actifs]), nBase = Math.min(base.runs_actifs.length, 6);
+  const sansAgent = s => s.courriers === nBase && s.allumes.every(x => permis.has(x));
+  const ok = avant.mode === "reel" && sansAgent(avant) && pendant.courriers === nBase + 2 && ["rev-em", "lexnote"].every(x => pendant.allumes.includes(x)) && sansAgent(apres) && !errs.length;
+  console.log(`exécutions ouvertes avant le test : ${base.runs_actifs.length} · avant : ${avant.courriers} courrier(s), allumés ${JSON.stringify(avant.allumes)} · pendant : ${pendant.courriers} courrier(s), allumés ${JSON.stringify(pendant.allumes)} — « ${pendant.bandeau} » · après : ${apres.courriers} courrier(s), allumés ${JSON.stringify(apres.allumes)} · erreurs console : ${errs.length ? errs.join(" | ") : "aucune"} · capture : ${shot}`);
   process.exit(ok ? 0 : 1);
 })().catch(e => { console.log("échec : " + e.message); process.exit(1); });

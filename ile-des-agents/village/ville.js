@@ -677,9 +677,16 @@ const LEG = {conseil:0, maison:1, forge:2, "terminé":3}, ETAPES = {conseil:"Con
 const maisonActive = () => (ETAT && (ETAT.etape === "maison" || ETAT.etape === "forge")) ? ETAT.maison : null;
 async function lireV2(){
   for(const url of ["/api/etat", "../operations/etat.json"]){
-    try{ const r = await fetch(url, {cache:"no-store"}); if(!r.ok) continue; const e = await r.json(); if(e && e.version === 2) return e; }catch(_){}
+    try{ const r = await fetch(url, {cache:"no-store"}); if(!r.ok) continue; const e = await r.json(); if(e && e.version === 2) return sansExpires(e); }catch(_){}
   }
   return null;
+}
+// operations/etat.json est un instantané écrit au dernier événement : sans serveur, une exécution jamais close y resterait
+// « active » pour toujours. Même règle que ile.py (RUN_ACTIF_MAX_S = 2 h) : au-delà, elle n'allume plus rien.
+function sansExpires(e){
+  const ok = (e.runs_actifs || []).filter(r => !(Date.now() - Date.parse(r.depuis) >= 2*3600*1000));
+  if(ok.length === (e.runs_actifs || []).length) return e;
+  return {...e, runs_actifs: ok, sieges_actifs: [...new Set(ok.map(r => r.siege).filter(Boolean))].sort()};
 }
 async function lireEtat(){
   ETAT2 = await lireV2();

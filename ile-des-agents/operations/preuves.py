@@ -165,12 +165,15 @@ def main():
 
         def c15():
             a = {"role": "maire", "verifie": "declare"}
+            _, e0 = http(port, "/api/etat")
+            base = sorted(r["run"] for r in e0["runs_actifs"])   # exécutions réellement ouvertes avant le test (ex. la Forge qui lance les preuves)
             r1 = ile.run_debut("chef-lexnote", a)["donnees"]["run"]; r2 = ile.run_debut("chef-upsa-sales-pilot", a)["donnees"]["run"]
             _, e = http(port, "/api/etat")
             avant = sorted(e["sieges_actifs"])
             ile.run_fin(r1, a); ile.run_fin(r2, a)
             _, e2 = http(port, "/api/etat")
-            return {"lexnote", "upsa-sales-pilot"} <= set(avant) and not e2["runs_actifs"], f"2 missions en parallèle → sièges actifs {avant} ; après clôture → {e2['runs_actifs']}"
+            apres = sorted(r["run"] for r in e2["runs_actifs"])
+            return {"lexnote", "upsa-sales-pilot"} <= set(avant) and apres == base, f"2 missions en parallèle → sièges actifs {avant} ; après clôture → exécutions actives {apres or 'aucune'} (déjà ouvertes avant le test : {base or 'aucune'})"
         check("C1.5", "État v2 : plusieurs sièges actifs en parallèle, aucun agent sans exécution", c15)
 
         def c16():

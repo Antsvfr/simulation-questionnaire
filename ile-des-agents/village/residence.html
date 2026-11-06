@@ -158,8 +158,12 @@ let JETON = null, DATA = null;
 function toast(t){ const el = $("#toast"); el.textContent = t; el.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove("on"), 3200); }
 async function api(path, body){
   if(body){
-    if(!JETON){ const s = await fetch("/api/session"); JETON = (await s.json()).jeton; }
-    const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json","X-Ile-Jeton":JETON}, body:JSON.stringify(body)});
+    const envoyer = async () => {
+      if(!JETON){ const s = await fetch("/api/session"); JETON = (await s.json()).jeton; }
+      return fetch(path, {method:"POST", headers:{"Content-Type":"application/json","X-Ile-Jeton":JETON}, body:JSON.stringify(body)});
+    };
+    let r = await envoyer();
+    if(r.status === 403){ JETON = null; r = await envoyer(); }   // serveur redémarré : le jeton a changé
     const j = await r.json(); if(!r.ok) throw new Error(j.erreur || r.status); return j;
   }
   const r = await fetch(path, {cache:"no-store"}); if(!r.ok) throw new Error(r.status); return r.json();
@@ -206,7 +210,7 @@ function projet(s){
       ${e.indicateurs?.length ? `<ul class="plain">${e.indicateurs.map(i => `<li>${esc(i.nom)} : <b>${esc(i.valeur)}</b>${i.source ? `<div class="src">${esc(i.source)}</div>` : ""}</li>`).join("")}</ul>` : ""}
       <div class="src">établi par ${esc(e.par)} · ${quand(e.quand)}${e.source ? " · source : " + esc(e.source) : ""}</div>`
     : (s.etat_des_lieux ? `<div class="nr">Pas encore d'avancement établi par un agent. État des lieux disponible : <span class="src">${esc(s.etat_des_lieux.chemin)}</span></div>` : `<div class="nr">Non renseigné : aucun état des lieux pour ce projet.</div>`);
-  const actions = s.prochaines_actions.length ? `<ul class="plain">${s.prochaines_actions.slice(0,4).map(m => `<li>${m.score != null ? `<span class="score">${m.score}</span> ` : ""}${esc(m.titre)} <span class="src">${esc(m.id)} · ${esc(STATUT[m.statut])} · par ${esc(m.auteur.role)}</span></li>`).join("")}</ul>` : `<div class="nr">Aucune mission proposée pour l'instant.</div>`;
+  const actions = s.prochaines_actions.length ? `<ul class="plain">${s.prochaines_actions.slice(0,4).map(m => `<li>${m.score != null ? `<span class="score">${esc(m.score)}</span> ` : ""}${esc(m.titre)} <span class="src">${esc(m.id)} · ${esc(STATUT[m.statut])} · par ${esc(m.auteur.role)}</span></li>`).join("")}</ul>` : `<div class="nr">Aucune mission proposée pour l'instant.</div>`;
   const pbs = s.problemes.length ? `<ul class="plain">${s.problemes.map(p => `<li class="pb-${esc(p.gravite)}"><span class="tag ${esc(p.gravite)}">${esc(p.gravite)}</span> ${esc(p.titre)}${src(p.source)}</li>`).join("")}</ul>` : `<div class="nr">Aucun problème ouvert signalé.</div>`;
   return `<article class="card">
     <div class="row" style="justify-content:space-between"><h3><span class="dot" style="background:${esc(s.couleur)}"></span>${esc(s.nom)}</h3>
@@ -230,14 +234,14 @@ function instructions(d){
 
 function missions(d){
   $("#missions tbody").innerHTML = d.missions.length ? d.missions.map(m => `<tr>
-    <td>${m.rang ?? "—"}</td>
+    <td>${esc(m.rang ?? "—")}</td>
     <td><b>${esc(m.titre)}</b><div class="src">${esc(m.id)}</div><details><summary>objectif, critères, sources${m.classement ? ", calcul du score" : ""}</summary>
       <div>${esc(m.objectif)}</div><ul>${m.criteres.map(c => `<li>${esc(c)}</li>`).join("")}</ul>
       ${m.sources?.length ? `<div class="src">sources : ${m.sources.map(esc).join(" · ")}</div>` : ""}
-      ${m.classement ? `<div class="src">${esc(m.classement.motif)} — valeur ${m.classement.detail.valeur}, urgence ${m.classement.detail.urgence}, effort ${m.classement.detail.effort}, risque ${m.classement.detail.risque}, priorité ${esc(m.classement.detail.priorite_siege)}${m.classement.detail.notes_manquantes.length ? " — notes manquantes : " + m.classement.detail.notes_manquantes.join(", ") : ""}</div>` : ""}
+      ${m.classement ? `<div class="src">${esc(m.classement.motif)} — valeur ${esc(m.classement.detail.valeur)}, urgence ${esc(m.classement.detail.urgence)}, effort ${esc(m.classement.detail.effort)}, risque ${esc(m.classement.detail.risque)}, priorité ${esc(m.classement.detail.priorite_siege)}${m.classement.detail.notes_manquantes.length ? " — notes manquantes : " + esc(m.classement.detail.notes_manquantes.join(", ")) : ""}</div>` : ""}
     </details></td>
     <td>${esc(m.siege)}</td><td>${esc(STATUT[m.statut] || m.statut)}${m.sensible ? ' <span class="tag p1">sensible</span>' : ""}</td>
-    <td>${m.score != null ? `<span class="score">${m.score}</span>` : "—"}</td>
+    <td>${m.score != null ? `<span class="score">${esc(m.score)}</span>` : "—"}</td>
     <td>${auteur(m.auteur)}</td>
     <td>${["proposee","attente_president"].includes(m.statut) ? `<div class="row"><button class="btn ok" type="button" data-mis="${esc(m.id)}" data-v="${m.sensible && m.statut === "proposee" ? "attente_president" : "planifiee"}">${m.sensible && m.statut === "proposee" ? "Examiner" : "Retenir"}</button><button class="btn bad" type="button" data-mis="${esc(m.id)}" data-v="rejetee">Rejeter</button></div>` : ""}</td>
   </tr>`).join("") : `<tr><td colspan="7" class="nr">Aucune mission.</td></tr>`;
