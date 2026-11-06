@@ -40,11 +40,18 @@ Questions rapides (une définition, une info) : réponds directement, sans circu
 - `/inspection` — la Forge inspecte toute l'île et répare.
 - Voir l'île : `python3 serveur.py` (sert la racine et ouvre `/village/`). Options d'URL : `?heure=jour|crepuscule|nuit`, `?qualite=bas|moyen|haut`, `?vue=<quartier>`, `?ouvrir=<id>`.
 
-## Activité en direct
+## Registre des opérations et Résidence (étapes 0 et 1)
 
-`etat-de-l-ile.json` dit ce que fait l'île (maison, sujet, étape conseil / maison / forge / terminé, heure). Il est écrit automatiquement par les hooks `SubagentStart`, `SubagentStop` et `Stop` (`.claude/hooks/etat-ile.py`) ; le village le relit toutes les 3 s.
-- Au début du circuit, donne le sujet : `python3 .claude/hooks/etat-ile.py sujet "<sujet court>"` (les hooks ne le connaissent pas).
-- Tester sans vrais agents : `python3 .claude/hooks/etat-ile.py simuler <id-maison>`.
+Tout ce que fait l'entreprise est inscrit dans **`operations/journal.jsonl`** : un journal en ajout seul, où chaque ligne porte l'empreinte SHA-256 de la précédente. C'est la source de vérité des instructions, missions, propositions, classements, problèmes, décisions, états des sièges, exécutions d'agents et artefacts. Le reste (Résidence, métropole) n'en est qu'une projection.
+- **Commande :** `python3 operations/ile.py …` (`etat`, `journal`, `verifier`, `mission proposer|statut|demarrer|liste`, `classer`, `probleme`, `decision`, `instruction`, `siege`, `artefact`, `run`). Auteur : `--auteur <rôle>` ; un agent ajoute `--run R-…` pour que son identité soit **confirmée** par son exécution ouverte.
+- **Ne jamais éditer le journal à la main** : `ile.py verifier` (et la Forge, à chaque fin de tâche) détecte toute ligne modifiée, retirée ou insérée, et tout artefact déposé puis modifié. Un document déposé (`artefact deposer`) est gelé : on dépose une nouvelle version, on ne réécrit pas l'ancienne.
+- **Agents identifiés :** les hooks `SubagentStart` / `SubagentStop` ouvrent et ferment une exécution (`R-…`) avec l'`agent_id`, la session et la trace Claude Code. Un agent n'apparaît actif (Résidence, métropole) que pendant une exécution réelle.
+- **Instructions du président :** données depuis la Résidence, présentées au DG au début de chaque session (hook `SessionStart`). Le DG les traite puis l'inscrit : `ile.py instruction traiter <id> --reponse "…" [--mission M-…]`. Aucune n'est exécutée automatiquement avant l'étape 3.
+- **Autonomie des directeurs :** `/revue <siège|toutes>` — chaque directeur analyse son projet en lecture seule et inscrit avancement, problèmes vérifiés et au plus 3 missions notées ; le DG classe (`ile.py classer`, formule publique, score et motif enregistrés). Les missions sensibles passent par `attente_president`.
+- **Seul le président** tranche une décision, fixe la priorité d'un siège ou valide une mission sensible (Résidence protégée par jeton, ou `--auteur president` en local).
+- **Résidence :** `python3 serveur.py`, puis `/village/residence.html` (ou clic sur la Résidence dans la métropole).
+- **Preuves :** `python3 operations/preuves.py` rejoue chaque critère des étapes 0 et 1 (PASS / FAIL / NOT TESTED) sur une copie du journal.
+- `etat-de-l-ile.json` (ancien format, une seule mission) reste écrit pour compatibilité ; la métropole lit d'abord l'état v2 du registre.
 
 ## Maisons-projets (grosses maisons)
 

@@ -1,2 +1,8 @@
-etat-de-l-ile.json.lock
 .etat-*.json
+__pycache__/
+etat-de-l-ile.json.lock
+operations/.etat-*
+operations/.mission-courante
+operations/.verrou
+operations/capteurs-erreurs.log
+operations/etat.json

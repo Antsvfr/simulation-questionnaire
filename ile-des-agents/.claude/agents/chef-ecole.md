@@ -12,3 +12,6 @@ Avant tout, lis `maisons/ecole/CLAUDE.md` et `journal.md`.
 - `marche/` : stats et études de marché. Les calculs se font en code (Python), jamais de tête.
 - `fiches/` : fiches de révision courtes, une par chapitre.
 - Tu aides Anton à apprendre : explique la méthode, ne rends pas un devoir « clé en main » quand c'est une évaluation individuelle.
+
+## Revue et propositions (autonomie)
+Quand on te demande une revue (`/revue`), tu analyses ton projet **sans le modifier** et tu inscris tes conclusions au registre des opérations, avec l'identifiant d'exécution qu'on te donne (`--run R-…`) : avancement (`siege etat`), problèmes vérifiés (`probleme signaler`), au plus 3 missions proposées avec critères d'acceptation et notes 1–5 (`mission proposer`), décisions qui reviennent au président (`decision demander`). Commande : `python3 operations/ile.py --auteur <ton-nom> --run <R-…> …` depuis `ile-des-agents/`. Tu proposes ; le directeur général classe ; le président valide le sensible.

@@ -18,7 +18,8 @@ import sys
 import tempfile
 import time
 
-RACINE = os.environ.get("CLAUDE_PROJECT_DIR") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Toujours relatif au script : la session peut être ouverte à la racine du dépôt ou dans ile-des-agents/.
+RACINE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ETAT = os.path.join(RACINE, "etat-de-l-ile.json")
 VERROU = ETAT + ".lock"
 ETAT_VIDE = {"maison": None, "sujet": None, "etape": "terminé", "agents_actifs": [], "maj": None, "historique": []}
@@ -175,6 +176,20 @@ def simuler(maison="bde-emergency", pause=4.0):
     print("circuit terminé")
 
 
+def registre_operations(cmd, payload):
+    """Inscrit l'exécution dans le registre des opérations (journal chaîné). Ne bloque jamais."""
+    try:
+        sys.path.insert(0, os.path.join(RACINE, "operations"))
+        import ile
+        ile.capteur(cmd, payload)
+    except Exception as e:
+        try:
+            with open(os.path.join(RACINE, "operations", "capteurs-erreurs.log"), "a", encoding="utf-8") as f:
+                f.write(f"{maintenant()} {cmd} {type(e).__name__}: {e}\n")
+        except Exception:
+            pass
+
+
 def main():
     args = sys.argv[1:]
     cmd = args[0] if args else ""
@@ -187,10 +202,9 @@ def main():
         payload = json.loads(sys.stdin.read() or "{}")
     except Exception:
         payload = {}
-    if cmd == "debut":
-        debut(nom_agent(payload))
-    elif cmd == "fin":
-        fin(nom_agent(payload))
+    if cmd in ("debut", "fin"):
+        (debut if cmd == "debut" else fin)(nom_agent(payload))
+        registre_operations(cmd, payload)
     elif cmd == "repos":
         repos()
 

@@ -211,6 +211,7 @@ const LANDS = [
   {id:"M", cx:0,  cz:16,  rx:70, rz:58, seed:1, top:"#686e73"},   // île principale : ville, entreprises, plages
   {id:"T", cx:0,  cz:-66, rx:52, rz:16, seed:2, top:"#4d545d"},   // îlot technologique
   {id:"E", cx:94, cz:4,   rx:16, rz:30, seed:3, top:"#6a6d71"},   // île portuaire
+  {id:"P", cx:-74, cz:66, rx:13, rz:11, seed:4, top:"#5d7d52"},   // îlot présidentiel (Résidence)
 ];
 const lf = (L,a) => 1 + .045*Math.sin(3*a+L.seed) + .035*Math.sin(5*a+L.seed*2.1) + .02*Math.sin(9*a+L.seed*.7);
 function landAt(x,z,m=.92){ for(const L of LANDS){ const dx = (x-L.cx)/L.rx, dz = (z-L.cz)/L.rz, k = lf(L,Math.atan2(dz,dx))*m; if(dx*dx+dz*dz < k*k) return L; } return null; }
@@ -226,7 +227,7 @@ const seaGeo = new T.PlaneGeometry(900,900,72,72); seaGeo.rotateX(-Math.PI/2);
 const sea = new T.Mesh(seaGeo, seaMat); sea.position.y = -.6; sea.receiveShadow = true; scene.add(sea);
 const seaBase = seaGeo.attributes.position.array.slice();
 LANDS.forEach(L => {
-  if(L.id === "M") slab(L, 1.075, -1.8, 1.35, sandMat, sandMat);
+  if(L.id === "M" || L.id === "P") slab(L, 1.075, -1.8, 1.35, sandMat, sandMat);
   slab(L, 1, -1.4, GROUND, pbr(L.top,.9,.02), wallMat);
 });
 function disc(x,z,rx,rz,color,y=GROUND+.02,mat){
@@ -254,7 +255,7 @@ const R1 = [], R2 = [];
 for(let k=0;k<16;k++){ const a = k/16*Math.PI*2; R1.push(node(22*Math.cos(a), 22*Math.sin(a))); R2.push(node(62*Math.cos(a), 12+48*Math.sin(a))); }
 for(let k=0;k<16;k++){ edge(R1[k],R1[(k+1)%16],8); edge(R2[k],R2[(k+1)%16],8); }
 const fixedB = B.filter(b => b.type !== "mairie");
-const FOOT = {mairie:17, conseil:15, forge:12, maison:10.5, chantier:7};
+const FOOT = {mairie:17, conseil:15, forge:12, maison:10.5, chantier:7, residence:12};
 const footOf = b => (FOOT[b.type] || 10)*BS;
 function segDist(px,pz,ax,az,bx,bz){ const dx = bx-ax, dz = bz-az, l2 = dx*dx+dz*dz, t = l2 ? clamp(((px-ax)*dx+(pz-az)*dz)/l2,0,1) : 0; return Math.hypot(px-(ax+t*dx), pz-(az+t*dz)); }
 R2.forEach((n,k) => {   // rayons (un sur deux : des blocs assez larges pour des tours)
@@ -268,6 +269,8 @@ const bN1 = node(0,-42.6), bN2 = node(0,-50.4), Ta = node(0,-58), Tw = node(-34,
 edge(R2[12], bN1, 7, "ave"); edge(bN1,bN2,7,"ave"); edge(bN2,Ta,7,"ave"); edge(Ta,Tw,6,"ave"); edge(Ta,Te,6,"ave");
 const bE1 = node(70,12), bE2 = node(79.5,12), Ec = node(86,12), En = node(86,-16), Es = node(86,26);
 edge(R2[0], bE1, 7, "ave"); edge(bE1,bE2,7,"ave"); edge(bE2,Ec,7,"ave"); edge(Ec,En,6,"ave"); edge(Ec,Es,6,"ave");
+const bP1 = node(-56.6,54.4), bP2 = node(-64.6,59.8), Pc = node(-69,63);   // pont vers l'îlot présidentiel
+edge(R2[6], bP1, 7, "ave"); edge(bP1,bP2,7,"ave"); edge(bP2,Pc,7,"ave");
 // accès aux bâtiments : un nœud proche, et une courte route
 const access = {}, spurs = [];
 B.forEach(b => {
@@ -306,6 +309,7 @@ function bridge(x1,z1,x2,z2,w,cable){
 }
 bridge(0,-41.6,0,-51.4,7,true);
 bridge(69,12,80.5,12,7,false);
+bridge(-55.6,53.7,-65.6,60.5,7,false);
 
 // routes : instances d'asphalte, trottoirs, marquage, carrefours
 {
@@ -457,6 +461,21 @@ HQ._generic = (b,g) => {
   const ringM = emis(acc,1.6); mk(new T.BoxGeometry(14,.5,14), ringM, 0, y, 0, g); sign(b.nom, acc, 12, g, 0, 4, 8, 0);
   activity(g, [0,y,0], own, ringM); g.userData.top = y+4; g.userData.rad = 9;
 };
+HQ.residence = (b,g) => {
+  const acc = b.couleur, own = [styleMat("white",1), styleMat("glassTeal",1)];
+  plaza(g, 15, acc);
+  mk(new T.BoxGeometry(26,1.2,20), stone, 0,.6,0, g);
+  tbox(6,2,4, own[1], -3, 1.2, -2, roofMat, g);
+  tbox(5,2,4, own[0], 4, 1.2+2*FH, 0, roofMat, g);
+  for(const x of [-.8,8.8]) mk(new T.BoxGeometry(.6,2*FH,.6), metal, x, 1.2+FH, 5.4, g);
+  const top = 1.2+4*FH; mk(new T.BoxGeometry(15,.4,12), roofGreen, 4, top+.2, 0, g).castShadow = false;
+  const pool = new T.Mesh(new T.BoxGeometry(10,.25,4.5), new T.MeshPhysicalMaterial({color:"#3fb3d9", roughness:.05, metalness:.2, envMapIntensity:1.6, emissive:"#0b4f66", emissiveIntensity:.5})); pool.position.set(3,1.25,7.3); g.add(pool);
+  mk(new T.CylinderGeometry(4,4,.18,28), darkMetal, -8, 1.3, -5.5, g); mk(new T.TorusGeometry(3.2,.15,6,32), emis("#ffffff",1.2), -8, 1.42, -5.5, g).rotation.x = Math.PI/2;
+  mk(new T.CylinderGeometry(.12,.12,9,6), metal, -11, 1.2+4.5, 7, g); mk(new T.BoxGeometry(2.6,1.5,.06), emis(acc,1.4), -9.7, 1.2+8.2, 7, g);
+  for(const [x,z] of [[11,-8],[-11,-1],[11,8],[-3,-9]]){ mk(new T.CylinderGeometry(.2,.3,2.4,6), pbr("#6b4e34",.9,0), x, 2.4, z, g); mk(new T.IcosahedronGeometry(1.8,1), pbr("#3f7a3a",.85,0), x, 4.6, z, g); }
+  sign("RÉSIDENCE PRÉSIDENTIELLE", acc, 16, g, 0, 4.4, 10.15, 0); glow(acc, 18, top+2, g);
+  activity(g, [4,top,0], own, null); g.userData.top = top+6; g.userData.rad = 13;
+};
 HQ._chantier = (b,g) => {
   const acc = b.couleur, ghost = new T.MeshStandardMaterial({color:acc, transparent:true, opacity:.22, roughness:.6, depthWrite:false});
   const base = mk(new T.BoxGeometry(11,18,11), ghost, 0, 9, 0, g); base.castShadow = false;
@@ -474,7 +493,7 @@ const groups = {}, clickables = [];
 function construireBatiment(b){
   const g = new T.Group(), [x,z] = b.pos;
   g.position.set(x, GROUND, z); g.rotation.y = b.type === "mairie" ? 0 : Math.atan2(-x,-z); g.userData.accent = b.couleur;
-  const fn = b.type === "mairie" ? HQ.mairie : b.type === "conseil" ? HQ.conseil : b.type === "forge" ? HQ.forge : b.type === "chantier" ? HQ._chantier : (HQ[b.id] || HQ._generic);
+  const fn = b.type === "residence" ? HQ.residence : b.type === "mairie" ? HQ.mairie : b.type === "conseil" ? HQ.conseil : b.type === "forge" ? HQ.forge : b.type === "chantier" ? HQ._chantier : (HQ[b.id] || HQ._generic);
   fn(b,g); g.scale.setScalar(BS); g.userData.top *= BS; g.userData.rad *= BS;
   g.traverse(o => { if(o.isMesh) o.userData.bid = b.id; });
   scene.add(g); groups[b.id] = g; clickables.push(g);
@@ -648,24 +667,44 @@ const houses = B.filter(b => b.type === "maison");
 const ambient = [];
 for(let i=0;i<Math.max(3,houses.length);i++){ const g = makeCourier(false); ambient.push({g, house:houses[i%houses.length]?.id || "mairie", leg:0, d:i*18, speed:rr(11,15)}); }
 const vrai = makeCourier(true); vrai.visible = false; const vraiS = {leg:-1, d:0};
+const POOL = Array.from({length:8}, () => { const g = makeCourier(true); g.visible = false; return g; }), coursiers = new Map();   // un courrier par exécution réelle
 const legsFor = house => [["mairie","conseil"],["conseil",house],[house,"forge"],["forge","mairie"]];
 const pt = {x:0,z:0,h:0};
 
 /* ---------- activité réelle : etat-de-l-ile.json ---------- */
-let ETAT = null;
+let ETAT = null, ETAT2 = null, MODE = "demo";   // MODE : reel (registre v2) · ancien (etat-de-l-ile.json) · demo (aucune donnée)
 const LEG = {conseil:0, maison:1, forge:2, "terminé":3}, ETAPES = {conseil:"Conseil", maison:"Maison", forge:"Forge", "terminé":"Terminé"};
 const maisonActive = () => (ETAT && (ETAT.etape === "maison" || ETAT.etape === "forge")) ? ETAT.maison : null;
+async function lireV2(){
+  for(const url of ["/api/etat", "../operations/etat.json"]){
+    try{ const r = await fetch(url, {cache:"no-store"}); if(!r.ok) continue; const e = await r.json(); if(e && e.version === 2) return e; }catch(_){}
+  }
+  return null;
+}
 async function lireEtat(){
+  ETAT2 = await lireV2();
+  if(ETAT2){ MODE = "reel"; ETAT = null; majBandeau(); majBadge(); rafraichirJournal(); return; }
   try{
     const r = await fetch("../etat-de-l-ile.json", {cache:"no-store"}); if(!r.ok) throw 0;
     const e = await r.json(); if(!e || typeof e !== "object" || !(e.etape in LEG)) throw 0;
     const avant = ETAT && JSON.stringify([ETAT.etape, ETAT.maison]); ETAT = e;
     if(avant !== JSON.stringify([e.etape, e.maison])) vraiS.leg = -1;
-  }catch(_){ ETAT = null; }
+    MODE = "ancien";
+  }catch(_){ ETAT = null; MODE = "demo"; }
   majBandeau(); majBadge(); rafraichirJournal();
 }
+const nomDe = id => B.find(b => b.id === id)?.nom || id;
 function majBandeau(){
-  const el = document.getElementById("now"); if(!ETAT){ el.hidden = true; return; }
+  const el = document.getElementById("now");
+  if(MODE === "reel"){
+    const R = ETAT2.runs_actifs, extra = [];
+    if(ETAT2.decisions_en_attente) extra.push(`${ETAT2.decisions_en_attente} décision(s) vous attendent à la Résidence`);
+    if(ETAT2.instructions_non_traitees) extra.push(`${ETAT2.instructions_non_traitees} instruction(s) en cours`);
+    el.textContent = (R.length ? `${R.length} agent(s) au travail : ` + R.slice(0,3).map(r => `${r.role} → ${r.siege ? nomDe(r.siege) : "hors siège"}`).join(", ") + (R.length > 3 ? "…" : "") : "Aucun agent au travail") + (extra.length ? " · " + extra.join(" · ") : "");
+    el.hidden = false; return;
+  }
+  if(MODE === "demo"){ el.textContent = "Mode démonstration : aucun registre trouvé, les courriers sont décoratifs (lance python3 serveur.py)."; el.hidden = false; return; }
+  if(!ETAT){ el.hidden = true; return; }
   const m = B.find(b => b.id === ETAT.maison), h = ETAT.maj ? new Date(ETAT.maj).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"medium"}) : "";
   const quoi = `${m ? " · " + m.nom : ""}${ETAT.sujet ? " — " + ETAT.sujet : ""}`, tail = h ? " · " + h : "";
   el.textContent = ETAT.etape === "terminé" ? ((m || ETAT.sujet) ? `Dernière demande terminée${quoi}${tail}` : `Île au repos${tail}`) : `En cours : ${ETAPES[ETAT.etape]}${quoi}${tail}`;
@@ -673,7 +712,7 @@ function majBandeau(){
 }
 
 /* ---------- étiquettes, carnet, journal ---------- */
-const KINDS = {mairie:"Centre stratégique · le Maire", conseil:"Centre de contrôle · 3 critiques", forge:"Centre de contrôle · vérification", maison:"Siège · projet", chantier:"Chantier · futur bâtiment"};
+const KINDS = {residence:"Résidence · le président", mairie:"Centre stratégique · le Maire", conseil:"Centre de contrôle · 3 critiques", forge:"Centre de contrôle · vérification", maison:"Siège · projet", chantier:"Chantier · futur bâtiment"};
 const labelsEl = document.getElementById("labels");
 const labels = B.map(b => {
   const el = document.createElement("button"); el.className = "lbl" + (b.type === "chantier" ? " chantier" : ""); el.type = "button";
@@ -689,6 +728,7 @@ const DISTRICTS = [
   {id:"residentiel", nom:"Résidentiel", tgt:[46,8,-8], pos:[102,50,36]},
   {id:"port", nom:"Port", tgt:[98,8,4], pos:[150,54,58]},
   {id:"nature", nom:"Plages & parcs", tgt:[-52,5,12], pos:[-108,38,58]},
+  {id:"residence", nom:"Résidence présidentielle", tgt:[-74,6,66], pos:[-34,34,104]},
 ];
 const distLabels = [["Centre-ville",0,-28,12],["Quartier technologique",0,-62,4],["Quartier des entreprises",0,52,6],["Résidentiel",46,-10,6],["Port",98,8,6],["Plages & parcs",-54,24,4]].map(([nom,x,z,h]) => {
   const el = document.createElement("div"); el.className = "dlbl"; el.textContent = nom; labelsEl.appendChild(el); return {el, v:new T.Vector3(x,GROUND+h,z)}; });
@@ -696,6 +736,7 @@ const panel = document.getElementById("panel"), openBtn = document.getElementByI
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function majBadge(){
   const el = document.getElementById("live"); if(!el) return; const b = B[current];
+  if(MODE === "reel"){ const n = ETAT2.runs_actifs.filter(r => r.siege === b.id).length; el.hidden = !n; if(n) el.textContent = `● ${n} agent(s) au travail (exécution réelle)`; return; }
   const on = ETAT && ETAT.etape !== "terminé" && (ETAT.etape === b.type || (b.id === ETAT.maison && (ETAT.etape === "maison" || ETAT.etape === "forge")));
   el.hidden = !on; if(on) el.textContent = `● Au travail · étape ${ETAPES[ETAT.etape]}`;
 }
@@ -722,6 +763,7 @@ function ouvrir(id, focus=true){
     ${b.dossier ? `<div class="f"><span>Dossier</span><code>${esc(b.dossier === "." ? "/ (racine)" : b.dossier + "/")}</code></div>` : ""}
     ${b.type === "maison" ? `<div class="f" id="jr" data-id="${esc(b.id)}" hidden><span>Journal · 5 dernières entrées</span><ul class="jr"></ul></div>` : ""}
     <div class="f"><span>${b.type === "chantier" ? "Environnement prévu" : "Environnement"}</span><ul class="env">${(b.environnement||[]).map(e => `<li>${esc(e)}</li>`).join("")}</ul></div>
+    ${b.type === "residence" ? `<a class="tag" style="text-decoration:none;border-style:solid;font-size:14px;padding:8px 12px" href="residence.html">Entrer dans la Résidence : tableau de bord →</a>` : ""}
     <div class="f"><span>Dans Claude Code</span><div class="cmd"><code id="cmdTxt">${esc(b.commande)}</code><button id="copy">Copier</button></div></div>`;
   document.getElementById("copy").onclick = async e => { try{ await navigator.clipboard.writeText(b.commande); e.target.textContent = "Copié"; }catch{ const r = document.createRange(); r.selectNodeContents(document.getElementById("cmdTxt")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); e.target.textContent = "Sélectionné"; } };
   dernierJournal = ""; rafraichirJournal(); majBadge(); panel.classList.remove("closed"); openBtn.hidden = true;
@@ -756,7 +798,7 @@ DISTRICTS.forEach(d => { const b = document.createElement("button"); b.textConte
 document.getElementById("tour").onclick = () => tourTimer ? stopTour() : startTour();
 document.querySelectorAll("[data-time]").forEach(b => b.onclick = () => setTime(b.dataset.time));
 document.getElementById("qsel").onchange = e => { qualAuto = e.target.value === "auto"; setQuality(qualAuto ? "moyen" : e.target.value); };
-addEventListener("keydown", e => { if(e.key === "Escape") goDistrict("aerien"); else if(/^[1-8]$/.test(e.key)) goDistrict(DISTRICTS[+e.key-1].id); });
+addEventListener("keydown", e => { if(e.key === "Escape") goDistrict("aerien"); else if(/^[1-9]$/.test(e.key)) goDistrict(DISTRICTS[+e.key-1].id); });
 
 // clic dans la scène
 const ray = new T.Raycaster(), ptr = new T.Vector2(); let down = null;
@@ -815,14 +857,15 @@ function frame(){
   if(frameN % 2 === 0){ const p = seaGeo.attributes.position.array; for(let i=0;i<p.length;i+=3){ const x = seaBase[i], z = seaBase[i+2]; p[i+1] = Math.sin(x*.07+t*.9)*.22 + Math.cos(z*.09+t*.7)*.2; } seaGeo.attributes.position.needsUpdate = true; if(frameN % 6 === 0) seaGeo.computeVertexNormals(); }
   beaconMat.emissiveIntensity = Math.sin(t*3) > 0 ? 2.6 : .15;
   // vie des bâtiments
-  const active = maisonActive(), forgeOn = ETAT && ETAT.etape === "forge";
+  const actSet = MODE === "reel" ? new Set(ETAT2.sieges_actifs.concat(ETAT2.decisions_en_attente ? ["residence"] : [])) : new Set([maisonActive()].filter(Boolean));
+  const forgeOn = MODE === "reel" ? actSet.has("forge") : (ETAT && ETAT.etape === "forge");
   for(const b of B){ const g = groups[b.id]; if(!g) continue; const h = g.userData.house, ud = g.userData;
     if(ud.orb){ ud.orb.rotation.y += dt*.8; ud.orb.position.y += Math.sin(t*1.4)*.01; }
     if(ud.jib) ud.jib.rotation.y = Math.sin(t*.15 + b.pos[0])*1.2;
     if(ud.glow) ud.glow.intensity = (forgeOn ? 3.4 : 2.2) + Math.sin(t*9)*.3 + Math.sin(t*23)*.2;
     if(ud.smoke) ud.smoke.forEach(s => { s.userData.t = (s.userData.t + dt*.12) % 1; const k = s.userData.t; s.position.set(7 + Math.sin(k*5+t)*1.2, 33 + k*20, -4); s.scale.setScalar(1.2 + k*3.8); s.material.opacity = .6*(1-k); });
     if(!h) continue;
-    const on = b.id === active; h.act += ((on ? 1 : 0) - h.act)*Math.min(1,dt*3);
+    const on = actSet.has(b.id); h.on = on; h.act += ((on ? 1 : 0) - h.act)*Math.min(1,dt*3);
     h.own.forEach(m => m.emissiveIntensity = K("win",tod) + h.act*1.6); h.beam.visible = h.act > .02; h.beam.material.opacity = h.act*(.28 + Math.sin(t*4)*.06); if(h.crown) h.crown.emissiveIntensity = 1.6 + h.act*3;
     h.puffs.forEach(s => { s.userData.t = (s.userData.t + dt*.25) % 1; const k = s.userData.t; s.position.set(h.vent[0] + Math.sin(k*6+t)*.8, h.vent[1] + 1 + k*9, h.vent[2]); s.scale.setScalar(.9 + k*2.4);
       s.material.opacity = on ? .7*(1-k) : Math.max(0, s.material.opacity - dt); s.visible = s.material.opacity > .01; }); }
@@ -830,7 +873,19 @@ function frame(){
   for(const m of movers){ const f = m.userData.ferry; if(f){ f.a += dt*f.speed; m.position.set(4 + f.rx*Math.cos(f.a), -.1+Math.sin(t*1.3+f.a)*.12, 12 + f.rz*Math.sin(f.a)); m.rotation.y = -Math.atan2(f.rz*Math.cos(f.a), -f.rx*Math.sin(f.a)); } else m.position.y = m.userData.base + Math.sin(t*.8)*.12; }
   if(carMeshes.length) stepCars(dt);
   // courriers
-  if(ETAT){
+  if(MODE === "reel"){
+    vrai.visible = false; ambient.forEach(a => a.g.visible = false);
+    const vus = new Set();
+    for(const r of ETAT2.runs_actifs.slice(0, POOL.length)){
+      vus.add(r.run); let c = coursiers.get(r.run);
+      if(!c){ const g = POOL.find(x => ![...coursiers.values()].some(y => y.g === x)); if(!g) break; c = {g, d:0}; coursiers.set(r.run, c); }
+      const cible = r.siege && groups[r.siege] ? r.siege : "mairie", p = pathBetween("mairie", cible);
+      c.d = Math.min(p.len, c.d + dt*22); samplePath(p, c.d, pt); const arrive = c.d >= p.len;
+      c.g.visible = true; c.g.position.set(pt.x, GROUND + .15 + (arrive ? Math.abs(Math.sin(t*3 + c.d))*.15 : 0), pt.z); if(!arrive) c.g.rotation.y = -pt.h;
+      const sc = c.g.userData.scroll; sc.rotation.y += dt*3;
+    }
+    for(const [id,c] of coursiers) if(!vus.has(id)){ c.g.visible = false; coursiers.delete(id); }
+  } else if(ETAT){
     const leg = LEG[ETAT.etape], p = pathBetween(...legsFor(ETAT.maison || "conseil")[leg]);
     if(vraiS.leg !== leg){ vraiS.leg = leg; vraiS.d = 0; }
     vraiS.d += dt*22; samplePath(p, vraiS.d, pt); const arrive = vraiS.d >= p.len;
@@ -839,7 +894,7 @@ function frame(){
     const sc = vrai.userData.scroll; sc.rotation.y += dt*3; sc.material.color.set(stageColors[leg]); sc.material.emissive.set(stageColors[leg]);
     ambient.forEach(a => a.g.visible = false);
   } else {
-    vrai.visible = false;
+    vrai.visible = false; POOL.forEach(g => g.visible = false);
     ambient.forEach(a => { const p = pathBetween(...legsFor(a.house)[a.leg]); a.d += dt*a.speed; if(a.d >= p.len){ a.d = 0; a.leg = (a.leg+1) % 4; if(a.leg === 0) a.house = pick(houses)?.id || "mairie"; }
       const q = pathBetween(...legsFor(a.house)[a.leg]); samplePath(q, a.d, pt); a.g.position.set(pt.x, GROUND+.15, pt.z); a.g.rotation.y = -pt.h; a.g.visible = a.d > 1 && a.d < q.len-1;
       a.g.userData.scroll.rotation.y += dt*3; a.g.userData.scroll.material.color.set(stageColors[a.leg]); a.g.userData.scroll.material.emissive.set(stageColors[a.leg]); });
@@ -857,7 +912,7 @@ function frame(){
 }
 
 /* ---------- démarrage ---------- */
-window.__metropole = {ready:false, dbg:{free, landAt:(x,z,m)=>landAt(x,z,m)&&landAt(x,z,m).id, roadDist, occ, spurs}, renderer, scene, camera, controls, setTime, goDistrict, ouvrir, setQuality, flyTo, DISTRICTS, groups, nodes, edges, cars, info:() => ({calls:renderer.info.render.calls, tris:renderer.info.render.triangles, geos:renderer.info.memory.geometries, tex:renderer.info.memory.textures, lods:lods.length, decor:occ.length, qual:qualName})};
+window.__metropole = {ready:false, mode:() => MODE, coursiersVisibles:() => POOL.filter(g => g.visible).length + ambient.filter(a => a.g.visible).length + (vrai.visible ? 1 : 0), siegesAllumes:() => Object.entries(groups).filter(([,g]) => g.userData.house && g.userData.house.on).map(([id]) => id), dbg:{free, landAt:(x,z,m)=>landAt(x,z,m)&&landAt(x,z,m).id, roadDist, occ, spurs}, renderer, scene, camera, controls, setTime, goDistrict, ouvrir, setQuality, flyTo, DISTRICTS, groups, nodes, edges, cars, info:() => ({calls:renderer.info.render.calls, tris:renderer.info.render.triangles, geos:renderer.info.memory.geometries, tex:renderer.info.memory.textures, lods:lods.length, decor:occ.length, qual:qualName})};
 const start = DISTRICTS.find(d => d.id === Q.get("vue")) || DISTRICTS[0];
 camera.position.set(...start.pos); controls.target.set(...start.tgt); camera.lookAt(controls.target);
 tod = todTarget = {jour:0, crepuscule:.5, nuit:1}[Q.get("heure")] ?? .5; setTime(Q.get("heure") in {jour:1,crepuscule:1,nuit:1} ? Q.get("heure") : "crepuscule"); applyTod();

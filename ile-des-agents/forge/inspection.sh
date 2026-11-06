@@ -22,6 +22,13 @@ besoin registre.json
 besoin journal-de-l-ile.md
 besoin village/index.html
 besoin village/ville.js
+besoin village/residence.html
+besoin operations/ile.py
+# Registre des opérations : le journal chaîné doit être intègre (toute ligne modifiée est détectée)
+if [ -f operations/journal.jsonl ]; then
+  if python3 operations/ile.py verifier >/dev/null 2>&1; then OK=$((OK+1)); else ERREURS+=("journal des opérations altéré : python3 operations/ile.py verifier"); fi
+fi
+[ -s operations/capteurs-erreurs.log ] && AVERTISSEMENTS+=("des capteurs (hooks) ont échoué : voir operations/capteurs-erreurs.log")
 for a in critique-clarte critique-exigence critique-strategie forgeron architecte; do
   besoin ".claude/agents/$a.md"
 done
@@ -63,6 +70,9 @@ if [ "$MODE" = "--hook" ]; then
   fi
   exit 0
 fi
+
+# Inspection complète : tests du registre des opérations
+if python3 -m unittest discover -s operations/tests >/dev/null 2>&1; then OK=$((OK+1)); else ERREURS+=("tests du registre en échec : python3 -m unittest discover -s operations/tests -v"); fi
 
 mkdir -p forge/rapports
 RAPPORT="forge/rapports/$(date +%F)-inspection.md"

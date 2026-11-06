@@ -3,6 +3,27 @@
   "version": 1,
   "batiments": [
     {
+      "id": "residence",
+      "nom": "Résidence présidentielle",
+      "type": "residence",
+      "pos": [
+        -76,
+        67
+      ],
+      "couleur": "#c9a227",
+      "agent": "Anton (président)",
+      "role": "Le président supervise toute l'entreprise : projets, priorités, décisions sensibles, instructions au directeur général.",
+      "dossier": "operations",
+      "quartier": "Îlot présidentiel",
+      "fonction": "Supervision et décisions du président",
+      "environnement": [
+        "village/residence.html : le tableau de bord",
+        "operations/journal.jsonl : le registre des opérations (chaîné)",
+        "operations/ile.py : la ligne de commande du registre"
+      ],
+      "commande": "python3 serveur.py, puis /village/residence.html"
+    },
+    {
       "id": "mairie",
       "nom": "Mairie",
       "type": "mairie",
@@ -417,6 +438,27 @@
       "commande": "/nouvelle-maison Académie",
       "quartier": "Campus",
       "fonction": "Chantier : future académie d'entraînement"
+    },
+    {
+      "id": "innovation",
+      "nom": "Innovation & Business",
+      "type": "chantier",
+      "pos": [
+        41,
+        -68
+      ],
+      "couleur": "#d4a017",
+      "agent": "à construire (étape 6)",
+      "dossier": "innovation",
+      "quartier": "Quartier technologique",
+      "fonction": "Chantier : futur département Innovation & Business",
+      "role": "Rechercher des opportunités commerciales, étudier des marchés et des concurrents, proposer des business models et présenter des projets potentiellement rentables. Ne dépense rien, ne contacte personne, ne crée aucun projet sans décision du président.",
+      "environnement": [
+        "innovation/signaux/",
+        "innovation/opportunites/",
+        "innovation/decisions/"
+      ],
+      "commande": "(étape 6 de la roadmap)"
     }
   ]
 }
